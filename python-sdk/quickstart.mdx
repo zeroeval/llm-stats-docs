@@ -51,6 +51,12 @@ print("metrics:", run.metrics)
 print("health:", run.health)
 ```
 
+<Tip>
+  If task inputs, outputs, or trace attributes may contain PII or secrets, you
+  can enable SDK-side redaction in `ze.init(...)`. See
+  [`/python-sdk/evals/pii-redaction`](/python-sdk/evals/pii-redaction).
+</Tip>
+
 ## Core primitives
 
 ```python

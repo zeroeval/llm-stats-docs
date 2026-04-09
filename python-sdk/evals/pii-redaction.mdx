@@ -1,0 +1,289 @@
+---
+title: "PII redaction"
+description: "Enable source-side redaction for span inputs, outputs, attributes, tags, and errors in the Python and TypeScript SDKs"
+---
+
+## What this feature does
+
+PII redaction is an opt-in SDK feature that redacts sensitive values before span
+payloads are buffered, logged, or sent out of your process.
+
+- It is available in both the Python and TypeScript SDKs.
+- It runs source-side in the SDK, not in the backend.
+- It helps when model inputs, outputs, attributes, or tags may include customer
+  PII or secrets.
+
+<Warning>
+  This only covers data that flows through ZeroEval SDK capture paths. If your
+  app logs or sends raw data somewhere else, the SDK cannot redact it
+  retroactively.
+</Warning>
+
+## Enable redaction
+
+Use `redaction` in `init(...)` to enable the feature and tune which fields it
+applies to.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import zeroeval as ze
+
+    ze.init(
+        api_key="sk_ze_demo_local",
+        redaction={
+            "enabled": True,
+            "redact_inputs": True,
+            "redact_outputs": True,
+            "redact_attributes": True,
+            "redact_errors": True,
+            "redact_session_names": True,
+            "redact_tag_values": True,
+        },
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```ts
+    import * as ze from "zeroeval";
+
+    ze.init({
+      apiKey: "demo-api-key",
+      redaction: {
+        enabled: true,
+        redactInputs: true,
+        redactOutputs: true,
+        redactAttributes: true,
+        redactErrors: true,
+        redactSessionNames: true,
+        redactTagValues: true,
+      },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+You can also enable it with an environment variable:
+
+```bash
+export ZEROEVAL_REDACT_PII=true
+```
+
+If you use the env toggle, set it before SDK initialization.
+
+## Config naming differences
+
+The two SDKs expose the same redaction controls with different naming
+conventions:
+
+| Python | TypeScript |
+| --- | --- |
+| `redact_inputs` | `redactInputs` |
+| `redact_outputs` | `redactOutputs` |
+| `redact_attributes` | `redactAttributes` |
+| `redact_errors` | `redactErrors` |
+| `redact_session_names` | `redactSessionNames` |
+| `redact_tag_values` | `redactTagValues` |
+| `sensitive_keys` | `sensitiveKeys` |
+| `custom_patterns` | `customPatterns` |
+
+## What gets redacted
+
+When enabled, the SDK can redact:
+
+- span `input_data` and `output_data`
+- span `attributes`
+- tag values
+- error messages and stacks
+- session names
+
+The built-in detectors cover:
+
+- emails
+- phone numbers
+- SSN-style values
+- credit cards and other PAN-style values
+- bearer tokens
+- JWTs
+- API keys and similar secret strings
+- cookie values and auth headers
+- IP addresses
+
+The SDK also force-redacts values under sensitive keys such as `email`,
+`phone`, `password`, `token`, `authorization`, `cookie`, `api_key`, and
+`client_secret`, even when the raw value is not otherwise recognized by a
+pattern.
+
+## What stays intact
+
+Redaction is targeted. It does not rewrite normal tracing metadata just because
+redaction is enabled.
+
+- span names stay intact
+- trace IDs and span IDs stay intact
+- timing and status stay intact
+- token counts, model names, provider names, and cost metadata stay intact
+  unless a specific value is itself sensitive
+
+<Note>
+  Do not assume raw session identifiers always stay visible. If you use a
+  sensitive exact-match value such as an email address as the session ID, the
+  SDK may replace that session ID with a placeholder too.
+</Note>
+
+## Reference-preserving placeholders
+
+Within a single trace, the SDK keeps a trace-scoped placeholder map.
+
+- The same normalized sensitive value becomes the same placeholder everywhere in
+  that trace.
+- Different sensitive values in the same trace get different placeholders.
+- The placeholder map resets for a new trace.
+- Matching is exact after normalization. It is not fuzzy identity resolution.
+
+For example, if `seb@zeroeval.com` appears in attributes, tags, inputs, outputs,
+and an error message in one trace, each occurrence becomes the same token such
+as `[REDACTED_EMAIL_A]`. If `other@zeroeval.com` also appears in that trace, it
+becomes a different token such as `[REDACTED_EMAIL_B]`.
+
+This behavior also carries across parent and child spans in the same trace.
+
+## Example
+
+The examples below are adapted from the SDK example files:
+
+- Python: `zeroeval-sdk/examples/pii_redaction.py`
+- TypeScript: `zeroeval-ts/examples/10-pii-redaction.ts`
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import zeroeval as ze
+
+    ze.init(
+        api_key="sk_ze_demo_local",
+        redaction={"enabled": True},
+        disabled_integrations=["openai", "gemini", "httpx", "langchain", "langgraph"],
+    )
+
+    with ze.span(
+        name="pii-redaction-demo",
+        session={"id": "alice@example.com", "name": "Alice alice@example.com"},
+        attributes={"owner": "alice@example.com"},
+        tags={
+            "customer_email": "alice@example.com",
+            "secondary_email": "bob@example.com",
+        },
+    ) as current_span:
+        current_span.set_io(
+            input_data={
+                "email": "alice@example.com",
+                "repeat_email": "alice@example.com",
+            },
+            output_data="Reach alice@example.com or bob@example.com",
+        )
+        current_span.set_error(
+            code="ValueError",
+            message="Failed for alice@example.com",
+        )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```ts
+    import * as ze from "zeroeval";
+
+    ze.init({
+      apiKey: "demo-api-key",
+      redaction: { enabled: true },
+    });
+
+    const span = ze.tracer.startSpan("demo.pii_redaction", {
+      sessionId: "alice@example.com",
+      sessionName: "Alice Example <alice@example.com>",
+      tags: {
+        customer_email: "alice@example.com",
+        backup_email: "alice@example.com",
+        auth_token: "Bearer super-secret-token",
+      },
+      attributes: {
+        authorization: "Bearer top-secret-token",
+      },
+    });
+
+    span.setIO(
+      {
+        email: "alice@example.com",
+        confirmEmail: "alice@example.com",
+      },
+      "Send follow-up to alice@example.com and bob@example.com"
+    );
+
+    span.setError({
+      code: "DEMO_ERROR",
+      message: "Contact alice@example.com for help",
+    });
+
+    ze.tracer.endSpan(span);
+    ```
+  </Tab>
+</Tabs>
+
+A redacted payload from that trace will look like this:
+
+```json
+{
+  "attributes": {
+    "owner": "[REDACTED_EMAIL_A]"
+  },
+  "tags": {
+    "customer_email": "[REDACTED_EMAIL_A]",
+    "secondary_email": "[REDACTED_EMAIL_B]"
+  },
+  "input_data": {
+    "email": "[REDACTED_EMAIL_A]",
+    "repeat_email": "[REDACTED_EMAIL_A]"
+  },
+  "output_data": "Reach [REDACTED_EMAIL_A] or [REDACTED_EMAIL_B]",
+  "error_message": "Failed for [REDACTED_EMAIL_A]"
+}
+```
+
+Notice the placeholder reuse:
+
+- the repeated `alice@example.com` value stays `[REDACTED_EMAIL_A]`
+- the distinct `bob@example.com` value becomes `[REDACTED_EMAIL_B]`
+- a new trace starts over and can assign `[REDACTED_EMAIL_A]` again
+
+## Normalization and limits
+
+Placeholder reuse depends on normalized exact matches:
+
+- emails are normalized with trim + lowercase
+- phone numbers, SSNs, and PANs are normalized to digits
+- IP addresses are normalized to a canonical or lowercase string as implemented
+  by each SDK
+- secrets use exact trimmed string matching
+
+Important limits:
+
+- there is no backend-side reversible token vault
+- there is no de-anonymization support
+- there are no fuzzy or entity-resolution guarantees across semantically related
+  strings
+- if the same person appears as different raw strings, they may get different
+  placeholders
+- if you bypass SDK capture paths, this feature does not protect that data
+
+## When to use this
+
+Enable redaction when your traces may include:
+
+- user or customer PII
+- support transcripts
+- model prompts with personal data
+- API keys, bearer tokens, cookies, or other secrets
+
+Prefer source-side redaction over relying on downstream handling alone.
+
+You should still review your own custom attributes, tags, and integrations to
+make sure sensitive data only enters the trace in places you expect.

@@ -72,6 +72,11 @@ This means signals inherit all of the benefits of tracing:
 - span-level inspection
 - compatibility with screenshots, attachments, and tags
 
+<Info>
+  If trace payloads may include PII or secrets, enable SDK-side redaction before
+  capture. See [`/python-sdk/evals/pii-redaction`](/python-sdk/evals/pii-redaction).
+</Info>
+
 ## Surface signals in the app
 
 Signals appear in trace-aware evaluation views:

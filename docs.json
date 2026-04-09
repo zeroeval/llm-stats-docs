@@ -68,6 +68,7 @@
               "python-sdk/evals/running-evals",
               "python-sdk/evals/scoring-and-metrics",
               "python-sdk/evals/signals-and-traces",
+              "python-sdk/evals/pii-redaction",
               "python-sdk/evals/repetitions-and-resume",
               "python-sdk/evals/common-failures"
             ]
