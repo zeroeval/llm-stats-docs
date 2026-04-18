@@ -1,0 +1,341 @@
+---
+title: "Image & video generations"
+description: "One unified endpoint for every image and video model, with built-in long-polling."
+---
+
+```http
+POST https://gateway.llm-stats.com/v1/generations
+GET  https://gateway.llm-stats.com/v1/generations/{id}
+```
+
+Image and video generation share a single resource. You `POST` once, the server holds the connection open while the job runs, and you get back a final response with a direct URL to the asset. If the job needs longer than the wait window, you `GET` the same id with another wait — no client-side polling cadence to manage.
+
+## At a glance
+
+- **One resource.** `POST /v1/generations` for every image and video model.
+- **Server-side long-polling.** `wait="auto"` (default) blocks for up to 60s — most short jobs return as `completed` in a single round-trip.
+- **Strict input.** Unknown fields are rejected, so typos surface immediately.
+- **Stable error codes.** Branch on `error.code`, never on `error.message`.
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+import requests
+
+# 1. Create the generation. wait="auto" long-polls (up to 60s).
+res = requests.post(
+    "https://gateway.llm-stats.com/v1/generations",
+    headers={"Authorization": "Bearer YOUR_API_KEY"},
+    json={
+        "model": "flux-1.1-pro",
+        "input": {"prompt": "A beautiful sunset over mountains"},
+        "wait": "auto",
+    },
+)
+job = res.json()
+
+# 2. If it didn't finish in time, poll the same resource.
+while job["status"] in ("queued", "running"):
+    res = requests.get(
+        f"https://gateway.llm-stats.com/v1/generations/{job['id']}",
+        params={"wait": 60},
+        headers={"Authorization": "Bearer YOUR_API_KEY"},
+    )
+    job = res.json()
+
+if job["status"] == "completed":
+    print("image:", job["output"]["media"][0]["url"])
+else:
+    print("failed:", job["error"]["message"])
+```
+
+```typescript TypeScript
+let res = await fetch("https://gateway.llm-stats.com/v1/generations", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: "Bearer YOUR_API_KEY",
+  },
+  body: JSON.stringify({
+    model: "flux-1.1-pro",
+    input: { prompt: "A beautiful sunset over mountains" },
+    wait: "auto",
+  }),
+});
+let job = await res.json();
+
+while (job.status === "queued" || job.status === "running") {
+  res = await fetch(
+    `https://gateway.llm-stats.com/v1/generations/${job.id}?wait=60`,
+    { headers: { Authorization: "Bearer YOUR_API_KEY" } },
+  );
+  job = await res.json();
+}
+
+if (job.status === "completed") {
+  console.log("image:", job.output.media[0].url);
+} else {
+  console.error("failed:", job.error.message);
+}
+```
+
+```bash cURL
+# Create — long-polls up to 60s and returns the final resource if it finishes in time.
+curl https://gateway.llm-stats.com/v1/generations \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "flux-1.1-pro",
+    "input": {"prompt": "A beautiful sunset over mountains"},
+    "wait": "auto"
+  }'
+
+# Still running? Poll the same generation:
+curl "https://gateway.llm-stats.com/v1/generations/<id>?wait=60" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+</CodeGroup>
+
+## Create a generation
+
+`POST /v1/generations` accepts a strict JSON body. Unknown top-level or nested keys are rejected with `invalid_input`.
+
+### Request
+
+<ParamField body="model" type="string" required>
+  Model ID (e.g. `flux-1.1-pro`, `veo-3`, `runway-gen4`). Use the model ID
+  exactly as listed on [llm-stats.com](https://llm-stats.com).
+</ParamField>
+
+<ParamField body="input" type="object" required>
+  Inputs to the generation. See [Input fields](#input-fields).
+</ParamField>
+
+<ParamField body="n" type="integer" default="1">
+  Number of images to generate (1–10). Image-only — ignored for video models.
+</ParamField>
+
+<ParamField body="wait" type='number | "auto"' default='"auto"'>
+  Server-side long-poll window in seconds (0–60). Pass `0` for fire-and-forget
+  (returns immediately with `status: "queued"`). `"auto"` picks a sensible
+  default per modality.
+</ParamField>
+
+#### Input fields
+
+All input fields live under `input` and are optional unless noted.
+
+<ParamField body="prompt" type="string" required>
+  The text prompt. 1–8000 characters.
+</ParamField>
+
+<ParamField body="images" type="string[]">
+  Up to 8 reference image URLs for image-to-image and image-to-video models.
+</ParamField>
+
+<ParamField body="aspect_ratio" type="string">
+  Aspect ratio in `W:H` form (e.g. `"16:9"`, `"1:1"`, `"9:16"`). Capped to the
+  model's supported set.
+</ParamField>
+
+<ParamField body="size" type="string">
+  Explicit pixel size (e.g. `"1024x1024"`). Models that don't accept `size`
+  ignore this; pick `aspect_ratio` instead.
+</ParamField>
+
+<ParamField body="duration" type="number | string">
+  Video clip duration in seconds (e.g. `8`). Image models ignore this.
+</ParamField>
+
+<ParamField body="resolution" type="string">
+  Video resolution (e.g. `"720p"`, `"1080p"`). Image models ignore this.
+</ParamField>
+
+<ParamField body="seed" type="integer">
+  Deterministic seed when supported by the provider.
+</ParamField>
+
+<ParamField body="negative_prompt" type="string">
+  Concepts to discourage. Supported by some image models.
+</ParamField>
+
+### Response
+
+Both endpoints return the same `GenerationResponse` shape — a single resource you can poll, store, and re-fetch.
+
+<ResponseField name="id" type="string">
+  Stable identifier for this generation.
+</ResponseField>
+
+<ResponseField name="object" type="string">
+  Always `"generation"`.
+</ResponseField>
+
+<ResponseField name="status" type='"queued" | "running" | "completed" | "failed" | "cancelled"'>
+  Lifecycle state. `queued` and `running` are non-terminal; the rest are
+  terminal.
+</ResponseField>
+
+<ResponseField name="model" type="string">
+  Echoes the `model` from the request.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO-8601 timestamp.
+</ResponseField>
+
+<ResponseField name="completed_at" type="string | null">
+  Set once the generation reaches a terminal state.
+</ResponseField>
+
+<ResponseField name="output" type="object | null">
+  Present once `status === "completed"`. Contains a `media` array.
+</ResponseField>
+
+<ResponseField name="output.media[]" type="MediaArtifact[]">
+  One entry per produced asset. See [MediaArtifact](#media-artifact).
+</ResponseField>
+
+<ResponseField name="usage" type="object | null">
+  Present on terminal states. `usage.cost_usd` is the billed cost in USD.
+</ResponseField>
+
+<ResponseField name="error" type="object | null">
+  Present on `status === "failed"`. `{ code, message }` — see
+  [Error codes](#error-codes).
+</ResponseField>
+
+#### MediaArtifact
+
+<ResponseField name="type" type='"image" | "video"' />
+<ResponseField name="url" type="string">
+  Signed URL. Download or copy the asset before the URL expires (typically
+  one hour).
+</ResponseField>
+<ResponseField name="format" type="string | null">
+  e.g. `"png"`, `"jpeg"`, `"mp4"`.
+</ResponseField>
+<ResponseField name="width" type="integer | null" />
+<ResponseField name="height" type="integer | null" />
+<ResponseField name="duration_seconds" type="number | null">
+  Video only.
+</ResponseField>
+
+### Example response (completed image)
+
+```json
+{
+  "id": "gen_01H…",
+  "object": "generation",
+  "status": "completed",
+  "model": "flux-1.1-pro",
+  "created_at": "2026-04-18T12:00:00Z",
+  "completed_at": "2026-04-18T12:00:09Z",
+  "output": {
+    "media": [
+      {
+        "type": "image",
+        "url": "https://…/gen_01H….png?X-Amz-Signature=…",
+        "format": "png",
+        "width": 1024,
+        "height": 1024
+      }
+    ]
+  },
+  "usage": { "cost_usd": 0.04 }
+}
+```
+
+### Example response (still running)
+
+If `wait` elapses without a terminal status, you get the same shape with
+`status: "running"` and a `Retry-After` header. Re-fetch the same `id`:
+
+```json
+{
+  "id": "gen_01H…",
+  "object": "generation",
+  "status": "running",
+  "model": "veo-3",
+  "created_at": "2026-04-18T12:00:00Z",
+  "completed_at": null,
+  "output": null,
+  "usage": null,
+  "error": null
+}
+```
+
+## Fetch a generation
+
+```http
+GET /v1/generations/{id}
+```
+
+<ParamField query="wait" type="number" default="0">
+  Optional long-poll window (0–60s). Passing `wait` lets you `GET` once and
+  block until the job is terminal, mirroring the `POST` ergonomics.
+</ParamField>
+
+The response is identical to the `POST` shape. Terminal responses are safe to
+cache (`Cache-Control: private, max-age=60`); non-terminal responses are
+returned with `Cache-Control: no-store`.
+
+## How `wait` actually works
+
+- **`wait: "auto"` (default).** The server picks per modality — long for image
+  jobs (which usually finish quickly), short for video (which usually doesn't).
+- **`wait: 0`.** Fire-and-forget. The response always returns immediately;
+  poll the resource yourself when you're ready.
+- **`wait: N` (1–60).** Server holds the connection up to `N` seconds. The
+  cap is below typical proxy idle timeouts, so you won't hit gateway 504s.
+
+The flow is the same in every case:
+
+```text
+POST /v1/generations         →  {status: "running" | "completed" | "failed"}
+↓ (still running?)
+GET  /v1/generations/{id}?wait=60  →  …repeat until terminal
+```
+
+You never need to implement a polling cadence — every wait is server-side.
+
+## Error codes
+
+Errors share the [unified envelope](/gateway/errors). Generation-specific codes you'll see most:
+
+| `error.code`            | HTTP | When it happens                                        |
+| ----------------------- | ---- | ------------------------------------------------------ |
+| `invalid_input`         | 400  | Validation, unknown fields, out-of-range parameters.   |
+| `unauthenticated`       | 401  | Missing or invalid API key.                            |
+| `insufficient_quota`    | 402  | Account out of credit or over plan limits.             |
+| `model_unavailable`     | 403  | Model isn't enabled for your account.                  |
+| `not_found`             | 404  | Unknown `{id}` on `GET`.                               |
+| `content_policy`        | 422  | Provider rejected the prompt or input image.           |
+| `rate_limited`          | 429  | Slow down. `Retry-After` tells you for how long.       |
+| `provider_unavailable`  | 502  | Every provider for this model returned an error.       |
+| `provider_timeout`      | 504  | Every provider for this model timed out.               |
+| `internal_error`        | 500  | Bug on our side — open a support ticket with the `id`. |
+
+## Patterns and tips
+
+<AccordionGroup>
+  <Accordion title="Always use the resource id, never poll a wall clock">
+    Persist `job.id` immediately after `POST`. If your worker crashes or your
+    user closes the tab, you can resume by re-fetching the same id — even
+    hours later — and you'll get the final state, including the signed URL.
+  </Accordion>
+  <Accordion title="Set realistic outer timeouts">
+    `wait` caps a single request at 60s. Apply your own outer deadline (e.g.
+    5 minutes for image, 10 minutes for video) and bail out cleanly with the
+    last `id` so the user can be notified later.
+  </Accordion>
+  <Accordion title="Image-to-image / image-to-video">
+    Pass reference URLs in `input.images` (max 8). The first reference is the
+    primary input for single-reference models.
+  </Accordion>
+  <Accordion title="Reproducibility">
+    Set `input.seed` for deterministic outputs on supported models. Same model
+    + same provider + same seed + same prompt → same image.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,173 @@
+---
+title: "Chat completions"
+description: "OpenAI-compatible chat completions with automatic provider routing."
+---
+
+```http
+POST https://gateway.llm-stats.com/v1/chat/completions
+```
+
+The chat endpoint is **drop-in compatible with the OpenAI SDK**. Point any OpenAI client at our base URL and your existing code keeps working — we route the model to the best healthy provider behind the scenes.
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://gateway.llm-stats.com/v1",
+    api_key="YOUR_API_KEY",
+)
+
+response = client.chat.completions.create(
+    model="claude-opus-4-6",
+    messages=[{"role": "user", "content": "Hello, how are you?"}],
+    temperature=0.7,
+    max_tokens=1024,
+)
+
+print(response.choices[0].message.content)
+```
+
+```typescript TypeScript
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "https://gateway.llm-stats.com/v1",
+  apiKey: "YOUR_API_KEY",
+});
+
+const response = await client.chat.completions.create({
+  model: "claude-opus-4-6",
+  messages: [{ role: "user", content: "Hello, how are you?" }],
+  temperature: 0.7,
+  max_tokens: 1024,
+});
+
+console.log(response.choices[0].message.content);
+```
+
+```bash cURL
+curl https://gateway.llm-stats.com/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "claude-opus-4-6",
+    "messages": [{"role": "user", "content": "Hello, how are you?"}],
+    "temperature": 0.7,
+    "max_tokens": 1024
+  }'
+```
+</CodeGroup>
+
+## Request body
+
+The request body follows the [OpenAI chat completions schema](https://platform.openai.com/docs/api-reference/chat). The most common fields:
+
+<ParamField body="model" type="string" required>
+  Model ID without any provider prefix (e.g. `gpt-4o`, `claude-opus-4-6`,
+  `llama-4-405b`). The router resolves it to the best provider.
+</ParamField>
+
+<ParamField body="messages" type="array" required>
+  Conversation history. Each message has `role` (`system`, `user`, `assistant`,
+  or `tool`) and `content` (string or content parts for multimodal models).
+</ParamField>
+
+<ParamField body="stream" type="boolean" default="false">
+  When `true`, the response is a Server-Sent Events stream of incremental
+  deltas — same wire format as OpenAI.
+</ParamField>
+
+<ParamField body="temperature" type="number">
+  Sampling temperature. Range and behavior depend on the underlying model.
+</ParamField>
+
+<ParamField body="max_tokens" type="integer">
+  Maximum tokens to generate. Capped per-model where the provider enforces a
+  limit.
+</ParamField>
+
+<ParamField body="tools" type="array">
+  Tool / function definitions. Forwarded verbatim to providers that support
+  tool calling.
+</ParamField>
+
+<ParamField body="response_format" type="object">
+  Set `{ "type": "json_object" }` for JSON-mode, or `{ "type": "json_schema", "json_schema": {...} }` for structured outputs (where supported).
+</ParamField>
+
+Any other OpenAI-supported parameter (`top_p`, `presence_penalty`, `frequency_penalty`, `seed`, `logprobs`, `stop`, `user`, …) is forwarded to the provider when supported.
+
+## Response
+
+The response is an OpenAI `chat.completion` object:
+
+```json
+{
+  "id": "chatcmpl_…",
+  "object": "chat.completion",
+  "created": 1730000000,
+  "model": "claude-opus-4-6",
+  "choices": [
+    {
+      "index": 0,
+      "message": { "role": "assistant", "content": "Hi! …" },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 27,
+    "total_tokens": 39
+  }
+}
+```
+
+## Streaming
+
+Set `stream: true` to receive a `text/event-stream` of `chat.completion.chunk` events:
+
+```python
+stream = client.chat.completions.create(
+    model="claude-opus-4-6",
+    messages=[{"role": "user", "content": "Stream this."}],
+    stream=True,
+)
+for chunk in stream:
+    delta = chunk.choices[0].delta.content or ""
+    print(delta, end="", flush=True)
+```
+
+The stream terminates with `data: [DONE]`, exactly like OpenAI. Failover is handled before the first byte goes out — once streaming starts, the connection sticks with the chosen provider.
+
+## Multimodal input
+
+Models that accept images, audio, or files use the standard OpenAI content-parts shape:
+
+```json
+{
+  "role": "user",
+  "content": [
+    { "type": "text", "text": "What's in this image?" },
+    {
+      "type": "image_url",
+      "image_url": { "url": "https://example.com/cat.png" }
+    }
+  ]
+}
+```
+
+## Errors
+
+Failures use the [shared error envelope](/gateway/errors). Provider-classified failures map to standard HTTP statuses:
+
+| Status | Meaning                                                              |
+| ------ | -------------------------------------------------------------------- |
+| `400`  | Validation failed (`max_tokens` too high, malformed messages, …).   |
+| `401`  | Missing or invalid API key.                                          |
+| `403`  | Key has no access to that model.                                     |
+| `429`  | Rate limited or quota exceeded — retry after `Retry-After` seconds.  |
+| `502`  | All providers returned errors. Includes the last upstream message.   |
+| `504`  | All providers timed out. Safe to retry.                              |

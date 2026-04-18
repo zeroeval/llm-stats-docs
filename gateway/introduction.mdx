@@ -1,0 +1,94 @@
+---
+title: "Introduction"
+description: "One endpoint per modality, every provider behind it."
+---
+
+The LLM Stats gateway is a thin, OpenAI-compatible router. You send a request to a single endpoint, we pick the best healthy provider for that model, and we transparently retry on failure — without changing your client code.
+
+## Base URL
+
+```
+https://gateway.llm-stats.com
+```
+
+All endpoints documented in this section live under `/v1`.
+
+## Authentication
+
+Send your API key as a Bearer token on every request.
+
+```bash
+Authorization: Bearer YOUR_API_KEY
+```
+
+Create and manage keys in the [LLM Stats dashboard](https://llm-stats.com).
+
+<Tip>
+  Keys starting with `ze_` are LLM Stats keys. Don't proxy upstream provider
+  keys — you don't need them. Routing, retries, and accounting all happen on our
+  side.
+</Tip>
+
+## How routing works
+
+<Steps>
+  <Step title="You send one request">
+    A normal request to a modality endpoint with a `model` field — no provider
+    prefix, no provider-specific quirks.
+  </Step>
+  <Step title="We pick a healthy provider">
+    The router scores every provider serving that model on live latency,
+    throughput, error rate, and capacity, then dispatches to the best one.
+  </Step>
+  <Step title="We fail over transparently">
+    If the chosen provider degrades or errors mid-flight, we retry on the next
+    best option. Your code only sees the final, successful response (or a clean
+    error envelope if every provider fails).
+  </Step>
+</Steps>
+
+## Endpoints at a glance
+
+| Modality       | Endpoint                          | Shape                                     |
+| -------------- | --------------------------------- | ----------------------------------------- |
+| Chat / LLM     | `POST /v1/chat/completions`       | OpenAI-compatible, sync or streaming      |
+| Image / Video  | `POST /v1/generations`            | Unified async resource with long-polling  |
+| Text-to-speech | `POST /v1/tts/synthesize`         | Returns audio bytes                       |
+| Speech-to-text | `POST /v1/stt/transcribe`         | Multipart upload, JSON transcript         |
+
+<CardGroup cols={2}>
+  <Card title="Chat completions" icon="message" href="/gateway/chat-completions">
+    OpenAI-compatible LLM inference with streaming.
+  </Card>
+  <Card title="Image & video generations" icon="image" href="/gateway/generations">
+    Single async API for image and video models.
+  </Card>
+  <Card title="Text-to-speech" icon="waveform" href="/gateway/text-to-speech">
+    Synthesize audio from text.
+  </Card>
+  <Card title="Speech-to-text" icon="microphone" href="/gateway/speech-to-text">
+    Transcribe audio files to text.
+  </Card>
+</CardGroup>
+
+## Errors
+
+Errors share a single envelope across every modality:
+
+```json
+{
+  "error": {
+    "code": "invalid_input",
+    "message": "Human-readable explanation.",
+    "param": "model"
+  }
+}
+```
+
+`code` is the contract — branch on it, never on `message`. See the full table in [Errors](/gateway/errors).
+
+## Rate limits
+
+Every response carries `X-RateLimit-*` headers so you can back off without
+guessing. When you exceed your quota, the gateway returns HTTP `429` with the
+standard error envelope and a `Retry-After` header.

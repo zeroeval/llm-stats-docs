@@ -84,6 +84,24 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "Gateway API",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["gateway/introduction", "gateway/errors"]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "gateway/chat-completions",
+              "gateway/generations",
+              "gateway/text-to-speech",
+              "gateway/speech-to-text"
+            ]
+          }
+        ]
       }
     ],
     "global": {}

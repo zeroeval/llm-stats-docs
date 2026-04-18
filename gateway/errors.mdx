@@ -1,0 +1,99 @@
+---
+title: "Errors"
+description: "One error envelope for every gateway endpoint."
+---
+
+Every gateway error — across chat, generations, TTS, and STT — uses the same shape, so you only need to write the handling code once.
+
+## Envelope
+
+```json
+{
+  "error": {
+    "code": "invalid_input",
+    "message": "Human-readable explanation.",
+    "param": "model"
+  }
+}
+```
+
+<ResponseField name="error.code" type="string">
+  Stable, machine-readable error code. **This is the contract** — branch on
+  it in your code.
+</ResponseField>
+<ResponseField name="error.message" type="string">
+  Human-readable explanation. Display it to operators, log it, but never
+  parse it.
+</ResponseField>
+<ResponseField name="error.param" type="string | null">
+  Field that caused the error, when applicable (e.g. `"model"`, `"input.prompt"`).
+</ResponseField>
+
+## Codes
+
+| `error.code`            | HTTP | Meaning                                                      |
+| ----------------------- | ---- | ------------------------------------------------------------ |
+| `invalid_input`         | 400  | Validation failed. Read `param` for the offending field.     |
+| `unauthenticated`       | 401  | Missing, malformed, or revoked API key.                      |
+| `insufficient_quota`    | 402  | Account out of credit or over plan limits. Top up to retry.  |
+| `model_unavailable`     | 403  | Model isn't enabled for your account or doesn't exist.       |
+| `not_found`             | 404  | Unknown resource id (e.g. on `GET /v1/generations/{id}`).    |
+| `content_policy`        | 422  | Provider rejected the request for safety / policy reasons.   |
+| `rate_limited`          | 429  | Slow down. Use `Retry-After` to back off.                    |
+| `provider_unavailable`  | 502  | Every healthy provider for this model returned an error.     |
+| `provider_timeout`      | 504  | Every healthy provider timed out. Safe to retry.             |
+| `internal_error`        | 500  | Bug on our side. Open a support ticket with the request id.  |
+
+## Headers worth handling
+
+| Header                | When                | What to do                                    |
+| --------------------- | ------------------- | --------------------------------------------- |
+| `Retry-After`         | `429`, `502`, `504` | Wait that many seconds before retrying.       |
+| `X-RateLimit-Limit`   | every response      | Your bucket size for the current window.      |
+| `X-RateLimit-Remaining` | every response    | Requests remaining in the current window.     |
+| `X-RateLimit-Reset`   | every response      | Unix seconds until the bucket refills.        |
+| `X-Request-Id`        | every response      | Cite this id when contacting support.         |
+
+## Recommended retry strategy
+
+<Steps>
+  <Step title="Honor `Retry-After` first">
+    For `429`, `502`, `504`, sleep for the value of `Retry-After` (with a
+    small jitter) before the next attempt.
+  </Step>
+  <Step title="Cap retries on terminal codes">
+    `400`, `401`, `403`, `404`, `422` are user errors — retrying won't help.
+    Surface them to the caller.
+  </Step>
+  <Step title="Bound everything">
+    Apply an outer deadline on every request and limit retries to e.g. 3
+    attempts so a degraded backend can't spiral your client.
+  </Step>
+</Steps>
+
+## Example: defensive client
+
+```python
+import time, requests
+
+def post_with_retries(url, payload, api_key, max_attempts=3):
+    headers = {"Authorization": f"Bearer {api_key}"}
+    for attempt in range(max_attempts):
+        res = requests.post(url, headers=headers, json=payload, timeout=120)
+        if res.status_code < 400:
+            return res.json()
+
+        body = res.json().get("error", {})
+        code = body.get("code", "internal_error")
+
+        # Permanent — don't retry.
+        if code in {"invalid_input", "unauthenticated", "model_unavailable",
+                    "insufficient_quota", "not_found", "content_policy"}:
+            raise RuntimeError(f"{code}: {body.get('message')}")
+
+        # Transient — back off using Retry-After.
+        sleep_s = float(res.headers.get("Retry-After", 2 ** attempt))
+        time.sleep(sleep_s)
+
+    raise RuntimeError("Exhausted retries")
+```
