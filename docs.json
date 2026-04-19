@@ -102,6 +102,19 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["api-reference/introduction"]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "https://api.llm-stats.com/stats/openapi.json"
+          }
+        ]
       }
     ],
     "global": {}

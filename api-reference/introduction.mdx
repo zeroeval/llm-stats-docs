@@ -1,44 +1,71 @@
 ---
 title: "Introduction"
-description: "Reference context for the ZeroEval platform"
+description: "Programmatic access to benchmark scores, model rankings, pricing, and metadata across every model we track."
 ---
 
-## About this section
+The LLM Stats API gives you direct, read-only access to the same dataset that powers [llm-stats.com](https://llm-stats.com) — every model, every benchmark score, every pricing change.
 
-This docs pass is focused on **Python SDK datasets and evals**.
+## Base URL
 
-If you are implementing with the SDK, start here:
+```
+https://api.llm-stats.com/stats/v1
+```
 
-<CardGroup cols={2}>
-  <Card
-    title="SDK installation"
-    icon="download"
-    href="/python-sdk/installation"
-  >
-    Install and initialize the Python SDK.
-  </Card>
-  <Card title="SDK quickstart" icon="rocket" href="/python-sdk/quickstart">
-    Run your first dataset + eval workflow end-to-end.
-  </Card>
-</CardGroup>
+## Authentication
 
-## Platform authentication model
-
-The platform uses bearer token authentication. In SDK workflows, this is configured via:
+Send your API key as a Bearer token on every request.
 
 ```bash
-export ZEROEVAL_API_KEY="sk_ze_..."
+Authorization: Bearer YOUR_API_KEY
 ```
 
-Or:
+Request access and create keys from the [developer console](https://llm-stats.com/developer).
 
-```python
-import zeroeval as ze
-ze.init(api_key="sk_ze_...")
+<Tip>
+  Keys starting with `ze_` are LLM Stats keys. The same key works for both the
+  Stats API and the Gateway API.
+</Tip>
+
+## Endpoints at a glance
+
+| Method | Path                       | Description                                                  |
+| ------ | -------------------------- | ------------------------------------------------------------ |
+| GET    | `/v1/models`               | Catalog with metadata, pricing, and category scores          |
+| GET    | `/v1/models/{id}`          | Full model detail with every benchmark score                 |
+| GET    | `/v1/benchmarks`           | All benchmarks with categories and model counts              |
+| GET    | `/v1/scores`               | Score matrix — filter across models and benchmarks           |
+| GET    | `/v1/rankings`             | TrueSkill rankings by category                               |
+| GET    | `/v1/updates`              | Recently added models (1–30 day lookback)                    |
+
+See the [Endpoints](/api-reference) section for full request and response schemas.
+
+## Errors
+
+Every error uses the same envelope, so you only need to write the handling code once.
+
+```json
+{
+  "error": {
+    "code": "not_found",
+    "message": "Human-readable explanation.",
+    "param": "model_id"
+  }
+}
 ```
 
-<Info>
-  A full HTTP API endpoint reference can be added in a dedicated future pass.
-  This section currently serves as platform context while SDK docs are the
-  primary path.
-</Info>
+`code` is the contract — branch on it, never on `message`.
+
+## Rate limits
+
+Limits are applied per API key, per endpoint:
+
+| Endpoint                  | Limit         |
+| ------------------------- | ------------- |
+| `/v1/models/{id}`         | 120 / minute  |
+| `/v1/rankings`            | 120 / minute  |
+| `/v1/models`              | 60 / minute   |
+| `/v1/benchmarks`          | 60 / minute   |
+| `/v1/updates`             | 60 / minute   |
+| `/v1/scores`              | 30 / minute   |
+
+Exceeding a limit returns HTTP `429` with the standard error envelope and a `Retry-After` header. Need higher limits? [Get in touch](mailto:founders@llm-stats.com).
