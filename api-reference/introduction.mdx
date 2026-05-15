@@ -39,6 +39,32 @@ Request access and create keys from the [developer console](https://llm-stats.co
 
 See the [Endpoints](/api-reference) section for full request and response schemas.
 
+## Discovering gateway-routable models
+
+Every model returned by `/v1/models` and `/v1/models/{id}` carries an
+`inference` block that tells you whether the model can be invoked
+through the [LLM Stats gateway](/gateway/introduction) and the
+canonical id to pass as `model`:
+
+```json
+{
+  "id": "gpt-5-2025-08-07",
+  "inference": {
+    "available": true,
+    "endpoint": "https://gateway.llm-stats.com/v1/chat/completions",
+    "gateway_model_id": "gpt-5-2025-08-07",
+    "openai_compatible": true,
+    "supports_streaming": true,
+    "supports_tools": true,
+    "supports_vision": false,
+    "docs_url": "https://docs.llm-stats.com/gateway/chat-completions"
+  }
+}
+```
+
+When `available` is `false`, the optional fields are omitted —
+that model is in the catalog but cannot be called through the gateway.
+
 ## Errors
 
 Every error uses the same envelope, so you only need to write the handling code once.
