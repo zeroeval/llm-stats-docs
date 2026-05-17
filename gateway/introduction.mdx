@@ -47,6 +47,29 @@ Create and manage keys in the [LLM Stats dashboard](https://llm-stats.com).
   </Step>
 </Steps>
 
+## Discovering gateway-routable models
+
+Use the Stats API to enumerate which models you can call through the gateway.
+Every model returned by `GET /stats/v1/models` carries an `inference` block:
+
+```json
+{
+  "id": "gpt-5-2025-08-07",
+  "inference": {
+    "available": true,
+    "endpoint": "https://gateway.llm-stats.com/v1/chat/completions",
+    "gateway_model_id": "gpt-5-2025-08-07",
+    "openai_compatible": true,
+    "supports_streaming": true,
+    "supports_tools": true,
+    "supports_vision": false
+  }
+}
+```
+
+Pass `inference.gateway_model_id` as the `model` field in your gateway request.
+See the [Stats API introduction](/api-reference/introduction#discovering-gateway-routable-models) for the field reference.
+
 ## Endpoints at a glance
 
 | Modality       | Endpoint                          | Shape                                     |
