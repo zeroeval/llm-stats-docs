@@ -4,9 +4,9 @@ sidebarTitle: "MCP"
 description: "Query the LLM Stats catalog and call the gateway from any MCP-compatible client."
 ---
 
-The LLM Stats MCP server lets AI agents query the model catalog, benchmark scores, rankings, and pricing — and run prompts through the inference gateway — without leaving the agent context. It speaks the [Model Context Protocol](https://modelcontextprotocol.io/), so any MCP-compatible client (Cursor, Claude Code, Claude Desktop, Continue, ChatGPT Apps) can connect directly to the hosted server.
+The LLM Stats MCP server gives AI agents access to the model catalog, benchmark scores, rankings, and pricing over the [Model Context Protocol](https://modelcontextprotocol.io/). One workflow tool (`compare-run`) also runs prompts through the inference gateway and returns latency, tokens, and cost per model.
 
-The server is headless and read-only over the [Stats API](/api-reference/introduction), with one workflow tool (`compare-run`) that hits the [inference gateway](/gateway/introduction).
+The server is hosted and read-only over the [Stats API](/api-reference/introduction). Cursor, Claude Code, Claude Desktop, Continue, and ChatGPT Apps connect directly.
 
 ## Setup
 
@@ -68,7 +68,7 @@ Point your MCP client at the hosted server. No installation required.
     ```
   </Tab>
   <Tab title="ChatGPT Apps">
-    Configure your app with the hosted MCP URL and supply the Bearer token in your platform's secrets manager. ChatGPT is the primary widget-rendering client.
+    Configure your app with the hosted MCP URL and store the Bearer token in your platform's secrets manager. ChatGPT renders every widget the server exposes.
 
     ```
     URL: https://mcp.llm-stats.com/mcp
@@ -82,31 +82,31 @@ Point your MCP client at the hosted server. No installation required.
 
 ## Authentication
 
-The MCP server uses the same `ze_...` key as the [Stats API](/api-reference/introduction#authentication) and the [Gateway API](/gateway/introduction#authentication) — no separate provisioning. Get your key from the [developer console](https://llm-stats.com/developer).
+The MCP server uses the same `ze_...` key as the [Stats API](/api-reference/introduction#authentication) and the [Gateway API](/gateway/introduction#authentication). You don't need to provision a second key. Get yours from the [developer console](https://llm-stats.com/developer).
 
 <Tip>
-  One key, three surfaces. The same `ze_...` Bearer token authenticates the
-  Stats API, the inference gateway, and the MCP server.
+  The same `ze_...` Bearer token authenticates the Stats API, the inference
+  gateway, and the MCP server. Provision once, use everywhere.
 </Tip>
 
 ## Tools
 
 ### Read tools
 
-Read tools are safe to call at any time. They do not modify state and do not consume gateway credits.
+Read tools are safe to call at any time. They don't modify state and don't consume gateway credits.
 
 | Tool                | Description                                                                       |
 | ------------------- | --------------------------------------------------------------------------------- |
 | `list-models`       | List models with filters (organization, modality, price, context, sort, cursor).  |
-| `get-model`         | Full detail for one model id — every benchmark score, provider pricing, sources.  |
-| `list-benchmarks`   | Benchmark catalog. Use for disambiguating benchmark ids.                          |
-| `list-scores`       | Score matrix with rich filtering across models and benchmarks.                    |
+| `get-model`         | Full detail for one model id: every benchmark score, provider pricing, and source. |
+| `list-benchmarks`   | Benchmark catalog. Use it to disambiguate benchmark ids.                          |
+| `list-scores`       | Score matrix with filters across models and benchmarks.                           |
 | `get-rankings`      | TrueSkill rankings for a category.                                                |
 | `list-updates`      | Models added in the last N days (1–30).                                           |
 
 ### Workflow tools
 
-Workflow tools compose multiple API calls to answer higher-level questions. They are still read-only.
+Workflow tools chain multiple API calls. They're still read-only.
 
 | Tool                              | Description                                                                                                  |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -119,9 +119,9 @@ Workflow tools compose multiple API calls to answer higher-level questions. They
 Gateway tools call the [inference gateway](/gateway/introduction). The same `ze_...` key authenticates them.
 
 <Warning>
-  `compare-run` invokes the gateway and consumes credits. It is annotated
+  `compare-run` hits the gateway and consumes credits. It's annotated
   `readOnlyHint: false` and `openWorldHint: true` so MCP clients can prompt
-  for user approval before calling.
+  for approval before calling.
 </Warning>
 
 | Tool                    | Description                                                                                                                |
@@ -131,7 +131,7 @@ Gateway tools call the [inference gateway](/gateway/introduction). The same `ze_
 
 ## Resources
 
-The server exposes seven MCP resources for introspection and reference data.
+Seven MCP resources are available for introspection and reference lookups.
 
 | URI                           | Description                                                                                                 |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -145,7 +145,7 @@ The server exposes seven MCP resources for introspection and reference data.
 
 ## Slash-command prompts
 
-Four MCP prompts surface as slash-commands in clients like Cursor and Claude Desktop.
+Four MCP prompts show up as slash-commands in clients like Cursor and Claude Desktop.
 
 | Prompt                   | Arguments                              | What it does                                                                                                              |
 | ------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -156,7 +156,7 @@ Four MCP prompts surface as slash-commands in clients like Cursor and Claude Des
 
 ## Interactive widgets
 
-Seven tools render an interactive widget in addition to a model-readable markdown summary. Clients with widget support (MCP Inspector, ChatGPT Apps, Cursor, Claude Desktop, VS Code, Goose) render both; text-only clients see the markdown fallback so the UX never breaks.
+Seven tools render an interactive widget alongside a markdown summary. MCP Inspector, ChatGPT Apps, Cursor, Claude Desktop, VS Code, and Goose render both. Text-only clients fall back to the markdown.
 
 | Widget                  | Backing tool(s)                                  |
 | ----------------------- | ------------------------------------------------ |
