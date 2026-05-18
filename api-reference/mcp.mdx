@@ -1,0 +1,169 @@
+---
+title: "MCP Server"
+sidebarTitle: "MCP"
+description: "Query the LLM Stats catalog and call the gateway from any MCP-compatible client."
+---
+
+The LLM Stats MCP server lets AI agents query the model catalog, benchmark scores, rankings, and pricing — and run prompts through the inference gateway — without leaving the agent context. It speaks the [Model Context Protocol](https://modelcontextprotocol.io/), so any MCP-compatible client (Cursor, Claude Code, Claude Desktop, Continue, ChatGPT Apps) can connect directly to the hosted server.
+
+The server is headless and read-only over the [Stats API](/api-reference/introduction), with one workflow tool (`compare-run`) that hits the [inference gateway](/gateway/introduction).
+
+## Setup
+
+Point your MCP client at the hosted server. No installation required.
+
+<Tabs>
+  <Tab title="Cursor">
+    Add this to your Cursor MCP settings (`.cursor/mcp.json`):
+
+    ```json
+    {
+      "mcpServers": {
+        "llm-stats": {
+          "url": "https://mcp.llm-stats.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ze_<your-api-key>"
+          }
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Claude Code">
+    ```bash
+    claude mcp add llm-stats --transport http https://mcp.llm-stats.com/mcp \
+      --header "Authorization: Bearer ze_<your-api-key>"
+    ```
+  </Tab>
+  <Tab title="Claude Desktop">
+    Add this to `claude_desktop_config.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "llm-stats": {
+          "command": "npx",
+          "args": ["-y", "mcp-use", "client", "connect", "https://mcp.llm-stats.com/mcp"],
+          "env": { "MCP_AUTHORIZATION": "Bearer ze_<your-api-key>" }
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Continue">
+    Add this to your Continue `config.json`:
+
+    ```json
+    {
+      "experimental": {
+        "modelContextProtocolServers": [
+          {
+            "name": "llm-stats",
+            "url": "https://mcp.llm-stats.com/mcp",
+            "headers": { "Authorization": "Bearer ze_<your-api-key>" }
+          }
+        ]
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="ChatGPT Apps">
+    Configure your app with the hosted MCP URL and supply the Bearer token in your platform's secrets manager. ChatGPT is the primary widget-rendering client.
+
+    ```
+    URL: https://mcp.llm-stats.com/mcp
+    Header: Authorization: Bearer ze_<your-api-key>
+    ```
+  </Tab>
+  <Tab title="Other clients">
+    Any client that supports HTTP transport works. Set the server URL to `https://mcp.llm-stats.com/mcp` and pass your API key in the `Authorization: Bearer ` header.
+  </Tab>
+</Tabs>
+
+## Authentication
+
+The MCP server uses the same `ze_...` key as the [Stats API](/api-reference/introduction#authentication) and the [Gateway API](/gateway/introduction#authentication) — no separate provisioning. Get your key from the [developer console](https://llm-stats.com/developer).
+
+<Tip>
+  One key, three surfaces. The same `ze_...` Bearer token authenticates the
+  Stats API, the inference gateway, and the MCP server.
+</Tip>
+
+## Tools
+
+### Read tools
+
+Read tools are safe to call at any time. They do not modify state and do not consume gateway credits.
+
+| Tool                | Description                                                                       |
+| ------------------- | --------------------------------------------------------------------------------- |
+| `list-models`       | List models with filters (organization, modality, price, context, sort, cursor).  |
+| `get-model`         | Full detail for one model id — every benchmark score, provider pricing, sources.  |
+| `list-benchmarks`   | Benchmark catalog. Use for disambiguating benchmark ids.                          |
+| `list-scores`       | Score matrix with rich filtering across models and benchmarks.                    |
+| `get-rankings`      | TrueSkill rankings for a category.                                                |
+| `list-updates`      | Models added in the last N days (1–30).                                           |
+
+### Workflow tools
+
+Workflow tools compose multiple API calls to answer higher-level questions. They are still read-only.
+
+| Tool                              | Description                                                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `compare-models`                  | Side-by-side comparison of 2–4 model ids.                                                                    |
+| `find-best-models-for-category`   | Top-ranked models for a category, optionally filtered by price or open-weight.                               |
+| `resolve-model`                   | Fuzzy lookup: free text in, ranked candidate `model_id`s out. Use before any other tool when the id is fuzzy. |
+
+### Gateway tools
+
+Gateway tools call the [inference gateway](/gateway/introduction). The same `ze_...` key authenticates them.
+
+<Warning>
+  `compare-run` invokes the gateway and consumes credits. It is annotated
+  `readOnlyHint: false` and `openWorldHint: true` so MCP clients can prompt
+  for user approval before calling.
+</Warning>
+
+| Tool                    | Description                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `compare-run`           | Run a single prompt through 2–4 models in parallel; returns per-model latency, tokens, cost, and output. Capped at 2000 max tokens. |
+| `get-gateway-snippet`   | Return a ready-to-paste curl, Python, AsyncOpenAI, or JavaScript snippet for invoking a model through the gateway.         |
+
+## Resources
+
+The server exposes seven MCP resources for introspection and reference data.
+
+| URI                           | Description                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `config://server-context`     | Redacted server config: auth mode, base URL, and connection status.                                         |
+| `docs://capabilities`         | Canonical tool, resource, prompt, and widget inventory with annotations.                                    |
+| `data://benchmarks`           | Full benchmark catalog (`{ id, name, category, modality, max_score, verified }`) so the LLM picks correct ids. |
+| `data://categories`           | Category ids (`coding`, `math`, `reasoning`, …) usable with `get-rankings`.                                 |
+| `data://organizations`        | Organization catalog (`{ id, name }`) derived from the model index.                                         |
+| `data://providers`            | Provider catalog (`{ id, name }`) derived from every model's `providers[]`.                                 |
+| `recipe://gateway-quickstart` | Paste-ready gateway quickstart: base URL, auth, OpenAI compatibility, streaming, tools, multimodal, snippets. |
+
+## Slash-command prompts
+
+Four MCP prompts surface as slash-commands in clients like Cursor and Claude Desktop.
+
+| Prompt                   | Arguments                              | What it does                                                                                                              |
+| ------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `/compare-models`        | `model_a`, `model_b`                   | Resolves each name with `resolve-model`, then calls `compare-models` with the resolved ids and writes a structured comparison. |
+| `/find-cheapest-for`     | `task`, optional `max_input_price`     | Maps the task to a category via `data://categories`, calls `find-best-models-for-category`, explains the price/quality tradeoff. |
+| `/whats-new-this-week`   | (none)                                 | Calls `list-updates` with `days=7` (falling back to 14), summarizes notable releases grouped by org.                       |
+| `/explain-benchmark`     | `benchmark_id_or_name`                 | Disambiguates via `data://benchmarks`, fetches top scores via `list-scores`, writes a SOTA and saturation summary.        |
+
+## Interactive widgets
+
+Seven tools render an interactive widget in addition to a model-readable markdown summary. Clients with widget support (MCP Inspector, ChatGPT Apps, Cursor, Claude Desktop, VS Code, Goose) render both; text-only clients see the markdown fallback so the UX never breaks.
+
+| Widget                  | Backing tool(s)                                  |
+| ----------------------- | ------------------------------------------------ |
+| `leaderboard`           | `list-models`, `find-best-models-for-category`   |
+| `model-card`            | `get-model`                                      |
+| `model-compare-table`   | `compare-models`                                 |
+| `benchmark-leaderboard` | `list-scores` (sorted, single-benchmark)         |
+| `rankings`              | `get-rankings`                                   |
+| `updates-timeline`      | `list-updates`                                   |
+| `compare-run`           | `compare-run`                                    |

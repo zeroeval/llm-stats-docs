@@ -103,7 +103,7 @@
         "groups": [
           {
             "group": "Overview",
-            "pages": ["api-reference/introduction"]
+            "pages": ["api-reference/introduction", "api-reference/mcp"]
           },
           {
             "group": "Endpoints",
