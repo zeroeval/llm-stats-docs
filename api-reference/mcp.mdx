@@ -12,6 +12,67 @@ The server is hosted and read-only over the [Stats API](/api-reference/introduct
 
 Point your MCP client at the hosted server. No installation required.
 
+### Connect with OAuth (recommended)
+
+On first connect, your MCP client opens a browser sign-in with Google or GitHub. You do not need to copy an API key into client config — the server brokers access behind the scenes.
+
+<Tabs>
+  <Tab title="Cursor">
+    Add this to your Cursor MCP settings (`.cursor/mcp.json`):
+
+    ```json
+    {
+      "mcpServers": {
+        "llm-stats": {
+          "url": "https://mcp.llm-stats.com/mcp"
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Claude Code">
+    ```bash
+    claude mcp add llm-stats --transport http https://mcp.llm-stats.com/mcp
+    ```
+  </Tab>
+  <Tab title="Claude Desktop">
+    Add this to `claude_desktop_config.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "llm-stats": {
+          "url": "https://mcp.llm-stats.com/mcp"
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Continue">
+    Add this to your Continue `config.json`:
+
+    ```json
+    {
+      "experimental": {
+        "modelContextProtocolServers": [
+          {
+            "name": "llm-stats",
+            "url": "https://mcp.llm-stats.com/mcp"
+          }
+        ]
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Other clients">
+    Any client that supports MCP OAuth works. Set the server URL to `https://mcp.llm-stats.com/mcp` and complete browser sign-in on first connect.
+  </Tab>
+</Tabs>
+
+### Legacy: API key
+
+If your client does not support OAuth, pass a Stats API key in the `Authorization` header. Keys must use the `sk_ze_` prefix.
+
 <Tabs>
   <Tab title="Cursor">
     Add this to your Cursor MCP settings (`.cursor/mcp.json`):
@@ -22,7 +83,7 @@ Point your MCP client at the hosted server. No installation required.
         "llm-stats": {
           "url": "https://mcp.llm-stats.com/mcp",
           "headers": {
-            "Authorization": "Bearer ze_<your-api-key>"
+            "Authorization": "Bearer sk_ze_<your-api-key>"
           }
         }
       }
@@ -32,7 +93,7 @@ Point your MCP client at the hosted server. No installation required.
   <Tab title="Claude Code">
     ```bash
     claude mcp add llm-stats --transport http https://mcp.llm-stats.com/mcp \
-      --header "Authorization: Bearer ze_<your-api-key>"
+      --header "Authorization: Bearer sk_ze_<your-api-key>"
     ```
   </Tab>
   <Tab title="Claude Desktop">
@@ -44,7 +105,7 @@ Point your MCP client at the hosted server. No installation required.
         "llm-stats": {
           "command": "npx",
           "args": ["-y", "mcp-use", "client", "connect", "https://mcp.llm-stats.com/mcp"],
-          "env": { "MCP_AUTHORIZATION": "Bearer ze_<your-api-key>" }
+          "env": { "MCP_AUTHORIZATION": "Bearer sk_ze_<your-api-key>" }
         }
       }
     }
@@ -60,7 +121,7 @@ Point your MCP client at the hosted server. No installation required.
           {
             "name": "llm-stats",
             "url": "https://mcp.llm-stats.com/mcp",
-            "headers": { "Authorization": "Bearer ze_<your-api-key>" }
+            "headers": { "Authorization": "Bearer sk_ze_<your-api-key>" }
           }
         ]
       }
@@ -72,21 +133,40 @@ Point your MCP client at the hosted server. No installation required.
 
     ```
     URL: https://mcp.llm-stats.com/mcp
-    Header: Authorization: Bearer ze_<your-api-key>
+    Header: Authorization: Bearer sk_ze_<your-api-key>
     ```
   </Tab>
   <Tab title="Other clients">
-    Any client that supports HTTP transport works. Set the server URL to `https://mcp.llm-stats.com/mcp` and pass your API key in the `Authorization: Bearer ` header.
+    Any client that supports HTTP transport works. Set the server URL to `https://mcp.llm-stats.com/mcp` and pass your API key in the `Authorization: Bearer sk_ze_<your-api-key>` header.
   </Tab>
 </Tabs>
 
 ## Authentication
 
-The MCP server uses the same `ze_...` key as the [Stats API](/api-reference/introduction#authentication) and the [Gateway API](/gateway/introduction#authentication). You don't need to provision a second key. Get yours from the [developer console](https://llm-stats.com/developer).
+### OAuth (recommended)
+
+When you connect with OAuth, the MCP client discovers the LLM Stats authorization server, opens a browser sign-in, and receives an access token. The MCP server validates that token and provisions a stable per-user API key for Stats and gateway calls — you never paste a key into client config.
+
+<Steps>
+  <Step title="Add the server URL">
+    Configure your MCP client with `https://mcp.llm-stats.com/mcp` only (no `Authorization` header).
+  </Step>
+  <Step title="Sign in on first connect">
+    Your client shows **Connect** or **Needs authentication**. Complete sign-in with Google or GitHub on [llm-stats.com](https://llm-stats.com).
+  </Step>
+  <Step title="Use tools">
+    After authorization, tool calls use the brokered credentials automatically. Reconnect later without signing in again until the token expires.
+  </Step>
+</Steps>
+
+### Legacy API key
+
+You can still authenticate with a Bearer token. Use the same `sk_ze_...` key as the [Stats API](/api-reference/introduction#authentication) and the [Gateway API](/gateway/introduction#authentication). Get yours from the [developer console](https://llm-stats.com/developer).
 
 <Tip>
-  The same `ze_...` Bearer token authenticates the Stats API, the inference
-  gateway, and the MCP server. Provision once, use everywhere.
+  OAuth is the easiest path for MCP clients that support it — no key to copy.
+  For REST and gateway HTTP calls, or legacy MCP configs, provision one
+  `sk_ze_...` key from the developer console and reuse it everywhere.
 </Tip>
 
 ## Tools
@@ -116,7 +196,7 @@ Workflow tools chain multiple API calls. They're still read-only.
 
 ### Gateway tools
 
-Gateway tools call the [inference gateway](/gateway/introduction). The same `ze_...` key authenticates them.
+Gateway tools call the [inference gateway](/gateway/introduction). OAuth-provisioned access and legacy `sk_ze_...` keys both authenticate gateway tool calls.
 
 <Warning>
   `compare-run` hits the gateway and consumes credits. It's annotated
