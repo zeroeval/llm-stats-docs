@@ -64,7 +64,7 @@ Move to Commercial when you need any of:
     A **data response** is any `2xx` response from a data route under `/stats/v1/*`. Cache hits count the same as fresh responses. Each unit is one HTTP response regardless of page size, so fetch the largest page that suits you.
   </Step>
   <Step title="Failures do not count">
-    `304 Not Modified`, other `3xx`, `4xx`, and `5xx` responses do not consume daily quota. Rate-limited (`429`) and quota-exceeded requests do not consume it either.
+    `4xx` and `5xx` responses do not consume daily quota. Rate-limited (`429`) and quota-exceeded requests do not consume it either. A `3xx` response counts only when it delivers a data result: `304 Not Modified` never counts, while the `302` from a [snapshot download](/api-reference/bulk-snapshots) counts as one data response because it hands you the file.
   </Step>
   <Step title="Reset at midnight UTC">
     Usage resets at `00:00:00 UTC` every day. `X-Quota-Reset` carries the Unix timestamp of the next reset.

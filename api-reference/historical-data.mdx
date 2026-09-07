@@ -29,63 +29,66 @@ Both require the `history` feature, which every plan includes. Each response cou
 ### Model history
 
 ```bash
-curl "https://api.llm-stats.com/stats/v1/models/gpt-5-2025-08-07/history?metric=score&benchmark=gpqa&from=2026-06-01&to=2026-09-01" \
+curl "https://api.llm-stats.com/stats/v1/models/gpt-5-2025-08-07/history?kind=score&benchmark_id=gpqa&from=2026-06-01&to=2026-09-01" \
   -H "Authorization: Bearer $LLM_STATS_API_KEY"
 ```
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `metric` | string, required | `score`, `rank`, `price_input`, `price_output`, or `category_index`. |
-| `benchmark` | string | Benchmark id. Required when `metric=score`. |
-| `category` | string | Category id. Required when `metric=rank` or `category_index`. |
-| `from` | date | Inclusive start (`YYYY-MM-DD`). Defaults to the start of your window. |
+| `kind` | string, required | `score`, `ranking`, `pricing`, or `metadata`. |
+| `benchmark_id` | string | Benchmark id. Narrows `kind=score` to one benchmark; omit to get all benchmarks. |
+| `category_id` | string | Category id. Narrows `kind=ranking` to one category; omit to get all categories. |
+| `from` | date | Inclusive start (`YYYY-MM-DD`). Defaults to 400 days before `to`, clamped to the start of your window. |
 | `to` | date | Inclusive end. Defaults to today. |
-| `granularity` | string | `day` (default) or `week`. |
+
+Points are daily. A single request may span at most 400 days; paginate by date for longer ranges.
 
 ### Rankings history
 
 ```bash
-curl "https://api.llm-stats.com/stats/v1/rankings/history?category=coding&from=2026-08-01&limit=10" \
+curl "https://api.llm-stats.com/stats/v1/rankings/history?category_id=code&from=2026-08-01&top=10" \
   -H "Authorization: Bearer $LLM_STATS_API_KEY"
 ```
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `category` | string, required | Category id. |
-| `from`, `to` | date | Inclusive date range. |
-| `limit` | integer | Number of top positions to include per date (default 10, max 100). |
+| `category_id` | string, required | Category id (`general`, `code`, `math`, …). |
+| `from`, `to` | date | Inclusive date range, same defaults and 400-day cap as above. |
+| `top` | integer | Number of top positions to include per date (default 10, max 50). |
 
 ## Response shape
 
 ```json
 {
   "model_id": "gpt-5-2025-08-07",
-  "metric": "score",
-  "benchmark": "gpqa",
+  "kind": "score",
+  "points": [
+    { "date": "2026-06-01", "value": 87.4, "benchmark_id": "gpqa", "category_id": null, "payload": { "n": 448 }, "source": "capture" },
+    { "date": "2026-06-02", "value": 87.4, "benchmark_id": "gpqa", "category_id": null, "payload": { "n": 448 }, "source": "capture" }
+  ],
   "window": {
-    "requested_from": "2026-06-01",
     "from": "2026-06-01",
     "to": "2026-09-01",
-    "earliest_available": "2026-03-07",
-    "clamped": false
-  },
-  "points": [
-    { "date": "2026-06-01", "value": 87.4, "payload": { "source": "official", "n": 448 } },
-    { "date": "2026-06-14", "value": 88.1, "payload": { "source": "official", "n": 448 } }
-  ]
+    "plan_limit_from": "2026-03-07",
+    "available_from": "2026-03-01"
+  }
 }
 ```
 
-- `points` are sorted ascending by `date`. A point is emitted only when the value changed or was re-measured, so gaps mean "unchanged", not "missing".
-- `payload` carries metric-specific context (source, sample size, currency, position count). Its keys may grow; ignore ones you do not know.
-- `window` tells you what was actually served after clamping.
+`/v1/rankings/history` has the same shape with `category_id` in place of `model_id` and `kind` fixed to `ranking`.
+
+- `points` are sorted ascending by `date`, one per day with recorded data. Days without a recorded value are absent, not interpolated.
+- `benchmark_id` and `category_id` identify the series a point belongs to when you did not narrow the request.
+- `source` is `capture` for values recorded by the nightly snapshot, or `backfill` for values reconstructed from a source table (pricing only).
+- `payload` carries kind-specific context (sample size, currency, position count). Its keys may grow; ignore ones you do not know.
+- `window` tells you what was actually served: `plan_limit_from` is the oldest date your plan may query (`null` means unlimited) and `available_from` is the first day with real data for this `kind` (`null` until collection has run).
 
 ## Window clamping
 
 `from` is clamped to the later of your plan window start and the launch date:
 
-- If `from` is **inside** your window, you get exactly what you asked for and `window.clamped` is `false`.
-- If `from` is **before** your window and you did not set `from` explicitly, the API silently uses the window start and sets `clamped: true`.
+- If `from` is **inside** your window, you get exactly what you asked for.
+- If you omit `from`, the API uses the later of the default start and `window.plan_limit_from`.
 - If you set `from` explicitly to a date before your window, the API returns `403` with `error.code: "history_window_exceeded"`, `param: "from"`, and the earliest date you may request in `message`. Clamp on your side or upgrade.
 
 ```json
@@ -111,7 +114,7 @@ Windows are **rolling**: the earliest date you can request moves forward every d
   not reveal earlier scores because none were recorded.
 </Warning>
 
-Pricing and category-index series may include older source data where we hold it, but do not assume universal backfill. `window.earliest_available` always tells you the true earliest point for that metric and plan. The launch date is published in the [changelog](/api-reference/changelog) when history ships.
+Pricing series may include older source data where we hold it (points marked `source: "backfill"`), but do not assume universal backfill. `window.available_from` always tells you the true earliest point for that kind. The launch date is published in the [changelog](/api-reference/changelog) when history ships.
 
 ## Choosing between history and snapshots
 

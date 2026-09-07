@@ -34,7 +34,7 @@ The counter increments on every authenticated request, including `304`, `4xx`, a
 
 ## Response headers
 
-Every authenticated `/stats/v1/*` response carries these headers.
+Once plan enforcement ships, every authenticated `/stats/v1/*` response — including error responses — carries these headers. Until then they are absent (see the rollout status above).
 
 | Header | Example | Meaning |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ Every authenticated `/stats/v1/*` response carries these headers.
 | `X-Quota-Reset` | `1788825600` | Unix timestamp of the next `00:00:00 UTC`. |
 | `X-LLM-Stats-Plan` | `builder` | Plan code: `community`, `builder`, or `commercial`. |
 | `X-Request-ID` | `req_01J...` | Unique request id. Include it in support requests. |
-| `X-Cache` | `HIT` or `MISS` | Data routes only. Cache hits still count toward the daily quota. |
+| `X-Cache` | `HIT`, `MISS`, or `BYPASS` | Data routes only. Cache hits still count toward the daily quota. |
 | `Retry-After` | `17` | On `429` only. Seconds to wait before retrying. |
 
 <Note>
@@ -56,7 +56,7 @@ Every authenticated `/stats/v1/*` response carries these headers.
   return `429`.
 </Note>
 
-Commercial organizations with an unlimited daily quota receive `X-Quota-Limit: unlimited` and no `X-Quota-Used` or `X-Quota-Remaining` headers.
+Commercial organizations with an unlimited daily quota receive `X-Quota-Limit: unlimited` and `X-Quota-Remaining: unlimited`; `X-Quota-Used` still reports today's count.
 
 Header values are read from a fast counter and may lag the exact number by a few requests under heavy parallelism. Treat them as guidance, not a ledger.
 
@@ -157,26 +157,32 @@ curl -i https://api.llm-stats.com/stats/v1/models/gpt-5-2025-08-07 \
 
 ```json
 {
-  "organization_id": "org_9f3b",
-  "plan": "builder",
-  "plan_version": 1,
-  "features": ["history", "snapshots", "incremental"],
-  "quota": {
-    "daily_limit": 5250,
-    "daily_used": 1204,
-    "daily_remaining": 4046,
-    "reset_at": "2026-09-08T00:00:00Z",
-    "verified_integration_bonus": 250
+  "plan": {
+    "plan": "builder",
+    "plan_version": 1,
+    "display_name": "Builder",
+    "status": "active",
+    "daily_quota": 5000,
+    "burst_per_minute": 300,
+    "history_months": 12,
+    "features": ["history", "snapshots", "incremental"],
+    "attribution_required": false,
+    "redistribution_allowed": false,
+    "period_end": "2026-10-01T00:00:00Z"
   },
-  "burst": {
-    "limit_per_minute": 300
+  "usage": {
+    "quota_day": "2026-09-07",
+    "used": 1204,
+    "limit": 5250,
+    "remaining": 4046,
+    "reset_at": 1788825600,
+    "burst_limit": 300
   },
-  "history": {
-    "window_days": 365,
-    "earliest_available": "2026-01-01"
-  }
+  "client_source": "api_key"
 }
 ```
+
+`plan.daily_quota` is the base quota for your plan; `usage.limit` includes any [verified-attribution bonus](/api-reference/plans-and-quotas#verified-attribution-bonus). `usage.limit`, `usage.remaining`, and `plan.daily_quota` are `null` for unlimited Commercial plans. `usage.reset_at` is the Unix timestamp of the next `00:00:00 UTC`.
 
 <Note>
   `/v1/account` is planned and ships with plan enforcement. Until then, view

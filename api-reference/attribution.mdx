@@ -28,11 +28,11 @@ Any of these satisfy the requirement. Choose the one that fits your surface.
 
 <Tabs>
   <Tab title="Badge (recommended)">
-    A signed badge image linking back to the source. It is what the verifier looks for first. See [Embeds and badges](/api-reference/embeds-and-badges).
+    A signed badge image linking back to the source. Badge loads from your allowed host are the observation evidence we record for an integration. See [Embeds and badges](/api-reference/embeds-and-badges).
 
     ```html
-    <a href="https://api.llm-stats.com/stats/embed/TOKEN/go" rel="noopener">
-      <img src="https://api.llm-stats.com/stats/embed/TOKEN.svg" alt="Data from LLM Stats" height="20" />
+    <a href="https://api.llm-stats.com/embed/TOKEN/go" rel="noopener">
+      <img src="https://api.llm-stats.com/embed/TOKEN/badge.svg" alt="Data from LLM Stats" height="20" />
     </a>
     ```
   </Tab>
@@ -43,14 +43,7 @@ Any of these satisfy the requirement. Choose the one that fits your surface.
     <p>Benchmark data by <a href="https://llm-stats.com?utm_source=YOUR_INTEGRATION">LLM Stats</a>.</p>
     ```
 
-    Use the same `utm_source` you declare on the integration so the verifier can match it.
-  </Tab>
-  <Tab title="Embed">
-    A live table or chart that carries its own attribution. See [Embeds and badges](/api-reference/embeds-and-badges#iframe-embed).
-
-    ```html
-    <iframe src="https://api.llm-stats.com/stats/embed/TOKEN" width="100%" height="420" loading="lazy" title="LLM Stats rankings"></iframe>
-    ```
+    Use the same `utm_source` you declare on the integration so a reviewer can match it. A source link can be combined with a [`source_link` badge](/api-reference/embeds-and-badges#badge) so the integration is observable.
   </Tab>
   <Tab title="Plain text">
     For surfaces without links (bot replies, PDFs, printed reports):
@@ -70,14 +63,14 @@ Requirements for any form:
 
 ## Verified integrations
 
-An **integration** is a public place where you show LLM Stats data. Declaring it and getting it verified earns a fixed quota bonus.
+An **integration** is a public place where you show LLM Stats data. Declaring it and getting it verified will earn a fixed quota bonus once the bonus ships (see the rollout status above).
 
 | | Community | Builder |
 | --- | --- | --- |
 | Bonus per verified integration | +250 data responses/day | +250 data responses/day |
 | Maximum verified integrations | 2 (+500/day) | 2 (+500/day) |
 
-The bonus is fixed — it does not grow with traffic — and is reflected in `X-Quota-Limit` and `/v1/account` as soon as the integration becomes verified.
+The bonus is fixed — it does not grow with traffic — and will be reflected in `X-Quota-Limit` and `/v1/account` when an integration becomes verified.
 
 ### Lifecycle
 
@@ -90,9 +83,9 @@ declared ──▶ observed ──▶ verified ──▶ grace ──▶ revoked
 | State | Meaning | Bonus |
 | --- | --- | --- |
 | `declared` | You registered a public URL and chose an attribution method in the developer console. | No |
-| `observed` | We fetched the URL and found your badge, embed, or source link at least once. | No |
-| `verified` | The attribution has been observed on at least 3 checks over 7 days, and the integration receives real traffic (see [evidence](#what-we-measure)). | **Yes** |
-| `grace` | A verified integration failed a check. You have 14 days to restore attribution before the bonus is removed. Re-verification returns it to `verified`. | Yes, during grace |
+| `observed` | Your badge has been loaded from the allowed host on at least one day (see [evidence](#what-we-measure)). | No |
+| `verified` | LLM Stats has reviewed the integration and confirmed the attribution. Verification is a manual review today; observation evidence makes an integration eligible but does not verify it on its own. | **Yes** |
+| `grace` | A verified integration stopped showing attribution. You have 14 days to restore it before the bonus is removed. Re-verification returns it to `verified`. | Yes, during grace |
 | `revoked` | Attribution stayed missing through the grace period, or the integration was removed for misuse. | No |
 | `rejected` | The URL is not a public page you control, the attribution is hidden or misleading, or the integration duplicates another one. | No |
 
@@ -100,18 +93,23 @@ Only `verified` and `grace` carry the bonus. Declaring an integration alone chan
 
 ### What we measure
 
-To move from `observed` to `verified` and to stay there, we look at:
+What we record automatically today:
 
-- **Presence**: an automated fetch of the declared URL finds the badge image, iframe, or a link to `llm-stats.com` carrying your `utm_source`.
+- **Observation days**: each UTC day on which your badge is loaded with a `Referer` matching the allowed host counts as one observed day. Referer-less loads render but are not evidence.
+- **Eligibility**: an `observed` integration with at least 7 observed days and a badge load within the last 30 days is recorded as eligible for review. Eligibility does not change the state or grant the bonus by itself.
+- **Clicks**: `/go` redirects are counted per day so you and we can see that the badge sends real traffic.
+
+What a reviewer checks before marking an integration `verified`:
+
+- **Presence**: the declared URL shows the badge or a link to `llm-stats.com` carrying your `utm_source`.
 - **Visibility**: the element is rendered (not `display: none`, not off-canvas, contrast above a minimum).
-- **Traffic**: the badge or embed is actually served to visitors — we count image and iframe loads whose `Referer` matches the allowed host. Very low traffic keeps the integration at `observed`.
 - **Consistency**: the page continues to show the data it attributes.
 
-Checks run at least weekly. You can trigger a check from the developer console after fixing something.
+Automatic verification after a period of observed days is **planned** and not yet enabled; until it ships, eligible integrations are verified by review. The eligibility threshold may change before then.
 
 ### Re-verification, removal, and appeal
 
-- A `grace` integration is re-checked daily; the first passing check returns it to `verified` with no loss of bonus.
+- A `grace` integration returns to `verified` with no loss of bonus once the attribution is restored and confirmed.
 - A `revoked` integration can be re-declared after fixing the issue. It restarts at `declared`.
 - Deleting an integration removes its bonus immediately.
 - If you believe an integration was rejected or revoked in error, reply to the notification email with the URL and a screenshot. We review appeals within five business days.

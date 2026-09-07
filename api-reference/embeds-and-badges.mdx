@@ -1,6 +1,6 @@
 ---
 title: "Embeds and badges"
-description: "Signed, public-safe badges, iframes, and redirect links for showing LLM Stats data without exposing an API key."
+description: "Signed, public-safe badges and redirect links for showing LLM Stats data without exposing an API key."
 ---
 
 <Info>
@@ -9,83 +9,59 @@ description: "Signed, public-safe badges, iframes, and redirect links for showin
   [changelog](/api-reference/changelog) for the release date.
 </Info>
 
-Embeds let you show LLM Stats data on a public page with a URL that is safe to put in HTML. They are the recommended way to satisfy [attribution](/api-reference/attribution) and the only way to show live data in a browser without proxying the API through your backend.
+Embeds let you credit LLM Stats on a public page with a URL that is safe to put in HTML. They are the recommended way to satisfy [attribution](/api-reference/attribution) and they are how we observe that an integration is live.
 
-Embeds are served from `https://api.llm-stats.com/stats/embed/…` and require **no** `Authorization` header. They are not counted against your daily quota and do not count toward your burst limit.
+Embeds are served from `https://api.llm-stats.com/embed/…` and require **no** `Authorization` header. They are not counted against your daily quota and do not count toward your burst limit.
 
 ## Surfaces
 
 | URL | Returns | Use in |
 | --- | --- | --- |
-| `/stats/embed/{token}.svg` | A badge image | `<img>` |
-| `/stats/embed/{token}` | An HTML widget (table, chart, or model card) | `<iframe>` |
-| `/stats/embed/{token}/go` | `302` redirect to the source page on llm-stats.com with your `utm_source` | `<a href>` |
+| `/embed/{token}/badge.svg` | A badge image | `<img>` |
+| `/embed/{token}/go` | `302` redirect to the matching page on llm-stats.com with attribution parameters | `<a href>` |
+
+There is no HTML widget or `<iframe>` surface. To show live data on your page, call the [API](/api-reference/introduction) from your backend and render it yourself, then place a badge next to it.
 
 ### Badge
 
 ```html
-<a href="https://api.llm-stats.com/stats/embed/eyJ2IjoxLCJpIjoiaW50XzlmM2IiLCJrIjoiYmFkZ2UiLCJtIjoiZ3B0LTUtMjAyNS0wOC0wNyJ9.5b9c1f4e2a7d3c8b/go" rel="noopener">
+<a href="https://api.llm-stats.com/embed/v1.int_9f3b.1.Qm9va2VkX0J5X0xMTVN0YXRz/go" rel="noopener">
   <img
-    src="https://api.llm-stats.com/stats/embed/eyJ2IjoxLCJpIjoiaW50XzlmM2IiLCJrIjoiYmFkZ2UiLCJtIjoiZ3B0LTUtMjAyNS0wOC0wNyJ9.5b9c1f4e2a7d3c8b.svg"
-    alt="GPT-5 — #1 in coding on LLM Stats"
+    src="https://api.llm-stats.com/embed/v1.int_9f3b.1.Qm9va2VkX0J5X0xMTVN0YXRz/badge.svg"
+    alt="Data from LLM Stats"
     height="20"
   />
 </a>
 ```
 
-Badges are SVG, render at any size, and refresh their content on our side; you never need to change the URL. Cache headers allow browsers to hold a badge for up to one hour.
+Badges are SVG and render at any size. Their content is chosen when you configure the integration; you never need to change the URL. Cache headers allow browsers to hold a badge for up to five minutes.
 
-Badge kinds: `rank` (position in a category), `score` (one benchmark), `price` (input/output per million), and `source` (a plain "Data from LLM Stats" mark).
-
-### Iframe embed
-
-```html
-<iframe
-  src="https://api.llm-stats.com/stats/embed/eyJ2IjoxLCJpIjoiaW50XzlmM2IiLCJrIjoicmFua2luZ3MiLCJjIjoiY29kaW5nIiwibiI6MTB9.9e4d8b1c7a2f6e3d"
-  width="100%"
-  height="420"
-  loading="lazy"
-  title="Top 10 coding models — LLM Stats"
-  sandbox="allow-scripts allow-popups allow-top-navigation-by-user-activation"
-></iframe>
-```
-
-Widgets carry their own attribution footer, follow `prefers-color-scheme`, and support `?theme=light|dark` to force one. Widget kinds: `rankings` (top-N table for a category), `model` (a card for one model), `compare` (up to 5 models side by side), and `chart` (a history line, subject to your plan's [history window](/api-reference/historical-data)).
+Widget types: `model_card` and `ranking_badge` (for one model), `benchmark_badge` (for one benchmark), and `source_link` (a plain "Data from LLM Stats" mark).
 
 ### Redirect link
 
 ```html
-<a href="https://api.llm-stats.com/stats/embed/TOKEN/go" rel="noopener">See full rankings on LLM Stats</a>
+<a href="https://api.llm-stats.com/embed/TOKEN/go" rel="noopener">See full rankings on LLM Stats</a>
 ```
 
-`/go` redirects to the matching page on llm-stats.com and appends `utm_source=<your integration>` so referral traffic is credited to your [integration](/api-reference/attribution#verified-integrations).
+`/go` redirects to the page the integration is configured for — `/models/{id}` for `model_card` and `ranking_badge`, `/benchmarks/{id}` for `benchmark_badge`, or the home page for `source_link` — and appends `utm_source=embed`, `utm_medium=<integration kind>`, `utm_campaign=<integration id>`, and `ref=<your allowed host>` so referral traffic is credited to your [integration](/api-reference/attribution#verified-integrations). The destination is derived from the integration, never from the request, so a `/go` link cannot be repurposed as an open redirect.
 
 ## Token structure
 
-A token is created for you in the developer console when you add an integration and choose what to embed. You do not build tokens yourself, but the format is documented so you know what is in them.
+A token is created for you in the developer console when you add an integration and choose what to embed. You do not build tokens yourself, but the format is documented so you know what is in it.
 
 ```text
-<base64url(JSON payload)>.<hex HMAC-SHA256 signature>
+v1.<integration id>.<token version>.<signature>
 ```
 
-```json
-{
-  "v": 1,
-  "i": "int_9f3b",
-  "k": "rankings",
-  "c": "coding",
-  "n": 10
-}
-```
-
-| Field | Meaning |
+| Part | Meaning |
 | --- | --- |
-| `v` | Token format version. |
-| `i` | Integration id. Ties the embed to an organization and its allowed host. |
-| `k` | Kind: `badge`, `rankings`, `model`, `compare`, `chart`, `source`. |
-| `m`, `c`, `b`, `n`, … | Kind-specific selectors (model id, category, benchmark, count). |
+| `v1` | Token format version. |
+| `<integration id>` | Ties the embed to an organization, its allowed host, and its widget type and resource. |
+| `<token version>` | Incremented when you rotate the token. Older versions stop resolving. |
+| `<signature>` | Truncated `HMAC-SHA256` over the integration's binding, with a key we hold. |
 
-The signature is `HMAC-SHA256` over the base64url payload with a key we hold. The payload is readable by anyone — **do not put anything private in an embed configuration** — but it cannot be altered without invalidating the signature.
+The token carries no configuration itself; the widget type, resource, and allowed host live on the integration. Editing the host or resource, rotating the token, or revoking the integration invalidates existing tokens.
 
 <Warning>
   A token is a **public rendering identifier**, not a credential. It grants no
@@ -97,16 +73,15 @@ The signature is `HMAC-SHA256` over the base64url payload with a key we hold. Th
 
 Each integration declares an allowed host (for example `example.com`, which also covers subdomains). Embed requests are validated against it:
 
-- `<img>` and `<iframe>` requests must carry a `Referer` (or `Sec-Fetch-Site`/`Origin`) matching the allowed host. Requests from other hosts receive a `source` badge or a placeholder widget that still links to LLM Stats, so a copied token cannot be used to brand someone else's page.
-- Requests without a referer (privacy extensions, some RSS readers, direct navigation) are served normally, but do not count as traffic evidence for verification.
-- `/go` redirects work from anywhere.
+- `<img>` requests must carry a `Referer` matching the allowed host. Requests from other hosts return `403`, so a copied token cannot be used to brand someone else's page.
+- Requests without a referer (privacy extensions, some RSS readers, direct navigation) are served normally, but do not count as observation evidence for verification.
+- `/go` links work from anywhere. A click whose `Referer` does not match the allowed host redirects to the llm-stats.com home page without attribution parameters.
 
-Change the allowed host in the developer console; existing tokens keep working because the host lives on the integration, not in the token.
+Change the allowed host in the developer console. Doing so invalidates the existing token, so copy the new one into your HTML afterwards.
 
 ## Limitations
 
-- Tokens do not expire, but you can **revoke** them from the console. A revoked token renders a `source` badge or placeholder and stops counting for verification.
-- Embeds show the same data as the public website. They cannot display Builder- or Commercial-only data (for example history beyond 6 months in a `chart`) on a page whose integration belongs to a Community organization.
-- Widgets are read-only and do not accept viewer input beyond theme; use the API for interactive experiences.
-- Embeds serve live data; they are not a way to redistribute the dataset. Scraping widget HTML to extract data is a terms violation.
-- Badge and widget loads are logged as described in [Privacy and analytics disclosure](/api-reference/attribution#privacy-and-analytics-disclosure).
+- Tokens do not expire, but you can **rotate** or **revoke** them from the console. A revoked or rotated token returns `404` and stops counting for verification.
+- Badges show the same data as the public website. They cannot display Builder- or Commercial-only data.
+- Badges are read-only and accept no viewer input; use the API for interactive experiences.
+- Badge loads and `/go` clicks are logged as described in [Privacy and analytics disclosure](/api-reference/attribution#privacy-and-analytics-disclosure).
