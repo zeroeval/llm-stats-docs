@@ -11,23 +11,23 @@ description: "Signed, public-safe badges and redirect links for showing LLM Stat
 
 Embeds let you credit LLM Stats on a public page with a URL that is safe to put in HTML. They are the recommended way to satisfy [attribution](/api-reference/attribution) and they are how we observe that an integration is live.
 
-Embeds are served from `https://api.llm-stats.com/embed/…` and require **no** `Authorization` header. They are not counted against your daily quota and do not count toward your burst limit.
+Embeds are served from `https://api.llm-stats.com/stats/embed/…` and require **no** `Authorization` header. They are not counted against your daily quota and do not count toward your burst limit.
 
 ## Surfaces
 
 | URL | Returns | Use in |
 | --- | --- | --- |
-| `/embed/{token}/badge.svg` | A badge image | `<img>` |
-| `/embed/{token}/go` | `302` redirect to the matching page on llm-stats.com with attribution parameters | `<a href>` |
+| `/stats/embed/{token}/badge.svg` | A badge image | `<img>` |
+| `/stats/embed/{token}/go` | `302` redirect to the matching page on llm-stats.com with attribution parameters | `<a href>` |
 
 There is no HTML widget or `<iframe>` surface. To show live data on your page, call the [API](/api-reference/introduction) from your backend and render it yourself, then place a badge next to it.
 
 ### Badge
 
 ```html
-<a href="https://api.llm-stats.com/embed/v1.int_9f3b.1.Qm9va2VkX0J5X0xMTVN0YXRz/go" rel="noopener">
+<a href="https://api.llm-stats.com/stats/embed/v1.int_9f3b.1.Qm9va2VkX0J5X0xMTVN0YXRz/go" rel="noopener">
   <img
-    src="https://api.llm-stats.com/embed/v1.int_9f3b.1.Qm9va2VkX0J5X0xMTVN0YXRz/badge.svg"
+    src="https://api.llm-stats.com/stats/embed/v1.int_9f3b.1.Qm9va2VkX0J5X0xMTVN0YXRz/badge.svg"
     alt="Data from LLM Stats"
     height="20"
   />
@@ -41,7 +41,7 @@ Widget types: `model_card` and `ranking_badge` (for one model), `benchmark_badge
 ### Redirect link
 
 ```html
-<a href="https://api.llm-stats.com/embed/TOKEN/go" rel="noopener">See full rankings on LLM Stats</a>
+<a href="https://api.llm-stats.com/stats/embed/TOKEN/go" rel="noopener">See full rankings on LLM Stats</a>
 ```
 
 `/go` redirects to the page the integration is configured for — `/models/{id}` for `model_card` and `ranking_badge`, `/benchmarks/{id}` for `benchmark_badge`, or the home page for `source_link` — and appends `utm_source=embed`, `utm_medium=<integration kind>`, `utm_campaign=<integration id>`, and `ref=<your allowed host>` so referral traffic is credited to your [integration](/api-reference/attribution#verified-integrations). The destination is derived from the integration, never from the request, so a `/go` link cannot be repurposed as an open redirect.
