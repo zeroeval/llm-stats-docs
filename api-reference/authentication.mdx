@@ -1,0 +1,65 @@
+---
+title: "Authentication"
+description: "API keys, organizations, and how credentials relate to plans and quotas."
+---
+
+Every Stats API request is authenticated with an API key sent as a Bearer token.
+
+```bash
+curl https://api.llm-stats.com/stats/v1/models \
+  -H "Authorization: Bearer sk_ze_your_key"
+```
+
+## Get a key
+
+<Steps>
+  <Step title="Request access">
+    Sign in at the [developer console](https://llm-stats.com/developer) and complete the access form. You describe your use case, the public URL where the data appears (if any), and whether you will credit LLM Stats. Access is granted automatically.
+  </Step>
+  <Step title="Create a key">
+    Create keys from **Settings → API keys** ([direct link](https://huggle.ai/settings?tab=api-keys)). Keys are shown once — store them in a secrets manager.
+  </Step>
+  <Step title="Call the API">
+    Send the key as `Authorization: Bearer <key>` on every request to `https://api.llm-stats.com/stats/v1`.
+  </Step>
+</Steps>
+
+<Tip>
+  Keys starting with `sk_ze_` (or the shorter `ze_` prefix on older keys) are
+  LLM Stats keys. The same key works for the Stats API and the
+  [Gateway API](/gateway/introduction#authentication). For MCP, prefer
+  [OAuth sign-in](/api-reference/mcp#authentication).
+</Tip>
+
+## Keys belong to organizations
+
+Keys are credentials, not quota pools. Every key you create belongs to your organization, and all of them draw from one organization-wide daily quota and burst limit. Creating another key does not increase your allowance, and revoking a key does not change your usage history.
+
+| Concept | Scope |
+| --- | --- |
+| API key | Credential and security boundary. Rotate or revoke independently. |
+| Organization | Plan, daily quota, burst limit, billing, and attribution live here. |
+| Official MCP connection | Provisions a key for your organization; its calls count in the same pool. |
+
+Your plan's key allowance (how many Stats API keys you can have at once) is shown in the developer console.
+
+## Official MCP keys
+
+When you connect the [MCP server](/api-reference/mcp) with OAuth, the server provisions a key for you. The API identifies these keys server-side and reports their traffic as `mcp` in your usage breakdown. Traffic from keys you created yourself is reported as `api`. Any `X-LLM-Stats-Client` header you send is recorded as a declared value but does not change the classification.
+
+## Authentication errors
+
+| HTTP | `error.code` | Meaning |
+| --- | --- | --- |
+| 401 | `authentication_required` | No `Authorization` header, or the header is not `Bearer <key>`. |
+| 401 | `invalid_api_key` | The key does not exist or was revoked. |
+| 403 | `stats_api_access_denied` | Your organization has not completed the access form. |
+| 403 | `stats_api_access_revoked` | Access to the Stats API was revoked for your organization. Contact [support](mailto:founders@llm-stats.com). |
+
+Each error includes a `help_url` that points to the page where you can fix the problem. See [Errors](/api-reference/errors) for the envelope.
+
+## Keep keys safe
+
+- Never ship a Stats API key in browser or mobile code. Proxy requests through your backend, or use [embeds and badges](/api-reference/embeds-and-badges), which use public signed tokens that grant no API access.
+- Use one key per deployment so you can rotate a leaked key without touching the others.
+- Leaked keys are contained by the organization burst limit, so rotate first and then review usage in the developer console.

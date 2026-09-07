@@ -103,7 +103,31 @@
         "groups": [
           {
             "group": "Overview",
-            "pages": ["api-reference/introduction", "api-reference/mcp"]
+            "pages": [
+              "api-reference/introduction",
+              "api-reference/authentication",
+              "api-reference/plans-and-quotas",
+              "api-reference/rate-limits-and-headers",
+              "api-reference/errors",
+              "api-reference/mcp",
+              "api-reference/changelog"
+            ]
+          },
+          {
+            "group": "Data",
+            "pages": [
+              "api-reference/historical-data",
+              "api-reference/bulk-snapshots",
+              "api-reference/incremental-updates",
+              "api-reference/webhooks"
+            ]
+          },
+          {
+            "group": "Attribution & embeds",
+            "pages": [
+              "api-reference/attribution",
+              "api-reference/embeds-and-badges"
+            ]
           },
           {
             "group": "Endpoints",

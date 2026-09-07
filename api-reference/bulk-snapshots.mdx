@@ -1,0 +1,157 @@
+---
+title: "Bulk snapshots"
+description: "Download the full dataset as compressed JSONL files with manifests, checksums, and signed URLs."
+---
+
+<Info>
+  **Planned.** Snapshot routes are specified here so you can design against
+  them; they return `404` until launch. Availability requires the `snapshots`
+  feature (Builder and Commercial). Follow the
+  [changelog](/api-reference/changelog) for the release date.
+</Info>
+
+A snapshot is a point-in-time export of the whole dataset. Download one to seed a local copy, then keep it current with [incremental updates](/api-reference/incremental-updates) instead of paging through the live API.
+
+| Plan | Access |
+| --- | --- |
+| Community | — |
+| Builder | The latest published snapshot |
+| Commercial | Latest plus retained snapshots, per contract and history entitlement |
+
+## Endpoints
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/v1/snapshots` | List snapshots you can download, newest first. |
+| GET | `/v1/snapshots/{snapshot_id}/download` | Get a signed download URL for one file in a snapshot. |
+
+Both are data routes and count as one data response each. The download itself (from the signed URL) does not touch the API and does not count.
+
+### List snapshots
+
+```bash
+curl https://api.llm-stats.com/stats/v1/snapshots \
+  -H "Authorization: Bearer $LLM_STATS_API_KEY"
+```
+
+```json
+{
+  "snapshots": [
+    {
+      "id": "snap_2026-09-07",
+      "published_at": "2026-09-07T02:10:00Z",
+      "data_as_of": "2026-09-07T00:00:00Z",
+      "schema_version": "1.0",
+      "datasets": [
+        {
+          "name": "models",
+          "format": "jsonl.gz",
+          "records": 1842,
+          "bytes": 3145728,
+          "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        },
+        { "name": "benchmarks", "format": "jsonl.gz", "records": 96, "bytes": 40960, "sha256": "…" },
+        { "name": "scores", "format": "jsonl.gz", "records": 58210, "bytes": 8388608, "sha256": "…" },
+        { "name": "rankings", "format": "jsonl.gz", "records": 1240, "bytes": 262144, "sha256": "…" },
+        { "name": "pricing", "format": "jsonl.gz", "records": 2210, "bytes": 196608, "sha256": "…" }
+      ],
+      "change_cursor": "MTg0NDI"
+    }
+  ]
+}
+```
+
+The list is a **manifest**. Use it to verify downloads and to decide whether anything changed since your last import (compare `id` or `data_as_of`).
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable snapshot identifier. |
+| `published_at` | When the files became downloadable. |
+| `data_as_of` | Point in time the data reflects. May be earlier than `published_at`. |
+| `schema_version` | Record schema for every file in this snapshot. See [Schema changes](#schema-changes). |
+| `datasets[].bytes`, `sha256` | Size and checksum of the compressed file. Verify after download. |
+| `change_cursor` | Cursor to pass to `/v1/changes` to continue from exactly this snapshot. |
+
+### Download a file
+
+```bash
+curl "https://api.llm-stats.com/stats/v1/snapshots/snap_2026-09-07/download?dataset=scores" \
+  -H "Authorization: Bearer $LLM_STATS_API_KEY"
+```
+
+```json
+{
+  "dataset": "scores",
+  "url": "https://s3.amazonaws.com/…?X-Amz-Signature=…",
+  "expires_at": "2026-09-07T16:36:00Z",
+  "bytes": 8388608,
+  "sha256": "…"
+}
+```
+
+Signed URLs expire **15 minutes** after issue. Start the download promptly; if it fails, request a new URL — it costs one data response but no extra bandwidth on your side.
+
+<Steps>
+  <Step title="Fetch the manifest">
+    `GET /v1/snapshots`. Stop if `id` matches what you already imported.
+  </Step>
+  <Step title="Download each dataset">
+    Request a signed URL per dataset and stream it to disk.
+  </Step>
+  <Step title="Verify">
+    Compare the file's SHA-256 and byte size to the manifest. Discard and re-download on mismatch.
+  </Step>
+  <Step title="Import atomically">
+    Load into a staging table, then swap. Never apply a partial snapshot.
+  </Step>
+  <Step title="Save the cursor">
+    Store `change_cursor` and continue with [incremental updates](/api-reference/incremental-updates).
+  </Step>
+</Steps>
+
+## File format
+
+Each dataset is one gzip-compressed [JSON Lines](https://jsonlines.org/) file: one JSON object per line, UTF-8, `\n` separated. Records use the same field names as the corresponding live endpoints.
+
+```bash
+curl -sL "$SIGNED_URL" | gunzip | head -n 1 | jq .
+```
+
+```json
+{"model_id":"gpt-5-2025-08-07","benchmark_id":"gpqa","value":88.1,"source":"official","measured_at":"2026-06-14","updated_at":"2026-06-14T09:00:00Z"}
+```
+
+| Dataset | One record per | Key fields |
+| --- | --- | --- |
+| `models` | Model | `id`, `name`, `organization`, `release_date`, `context_length`, `inference`, `updated_at` |
+| `benchmarks` | Benchmark | `id`, `name`, `category`, `model_count`, `updated_at` |
+| `scores` | Model × benchmark | `model_id`, `benchmark_id`, `value`, `source`, `measured_at`, `updated_at` |
+| `rankings` | Model × category | `model_id`, `category`, `rank`, `trueskill_mu`, `trueskill_sigma`, `updated_at` |
+| `pricing` | Model × provider | `model_id`, `provider`, `input_per_million`, `output_per_million`, `currency`, `effective_from`, `updated_at` |
+
+Consult the generated [endpoint schemas](/api-reference) for field-level definitions; snapshot records mirror them.
+
+## Schedule, freshness, and retention
+
+- Snapshots are published **daily**, shortly after `00:00 UTC`. `data_as_of` marks the cut.
+- Builder always sees exactly one snapshot: the latest. Older snapshots are not retrievable on Builder — use the change feed for history.
+- Commercial retention follows your contract; by default the last 90 daily snapshots plus month-end snapshots within your history entitlement are retained.
+- A snapshot is never modified after `published_at`. Corrections appear in the next snapshot and in the change feed.
+
+## Schema changes
+
+`schema_version` is `major.minor`. Minor bumps add optional fields; your importer should ignore unknown keys. Major bumps can rename or remove fields and are announced in the [changelog](/api-reference/changelog) at least 30 days before the first snapshot that uses them. During the notice period, the manifest lists both versions and you choose with `?schema_version=`.
+
+## Recovery
+
+If your local copy is corrupt or your incremental cursor has expired (`410 cursor_expired`), re-import the latest snapshot and resume from its `change_cursor`. A full resync costs one data response for the manifest plus one per dataset — five or six in total.
+
+## Rights and redistribution
+
+Downloading a snapshot gives you a copy of the dataset for use **inside your organization or product**, under the [API terms](https://llm-stats.com/legal/api-terms). It does not grant redistribution rights:
+
+- Builder may load the data into internal systems and display it to your users with the plan's attribution terms.
+- Builder may **not** republish the files, mirror them, ship them as a dataset, or expose them through your own API.
+- Commercial redistribution, sublicensing, and white-label use are granted only in a signed contract. [Contact sales](https://llm-stats.com/contact-sales).
+
+See [Plans and quotas](/api-reference/plans-and-quotas#technical-access-is-not-a-right-to-redistribute).

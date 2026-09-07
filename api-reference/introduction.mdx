@@ -7,7 +7,7 @@ The LLM Stats API gives you direct, read-only access to the same dataset that po
 
 ## Base URL
 
-```
+```text
 https://api.llm-stats.com/stats/v1
 ```
 
@@ -19,13 +19,30 @@ Send your API key as a Bearer token on every request.
 Authorization: Bearer YOUR_API_KEY
 ```
 
-Request access and create keys from the [developer console](https://llm-stats.com/developer).
+Request access and create keys from the [developer console](https://llm-stats.com/developer). See [Authentication](/api-reference/authentication) for key formats, organizations, and MCP sign-in.
 
-<Tip>
-  Keys starting with `ze_` are LLM Stats keys. The same key works for both the
-  Stats API and the Gateway API. For MCP, use [OAuth sign-in](/api-reference/mcp#authentication)
-  (recommended) or pass a legacy `sk_ze_...` key.
-</Tip>
+## Plans
+
+Access is packaged into three plans. Every plan includes the current-data endpoints below. Paid plans add capacity, history, and delivery features.
+
+| | Community | Builder | Commercial |
+| --- | --- | --- | --- |
+| Price | Free | $99/month | Contract-specific |
+| Daily quota (data responses per organization) | 500 | 5,000 | Contract-specific |
+| Historical window | Rolling 6 months | Rolling 12 months | Full or contract-specific |
+| Incremental updates, bulk snapshots | — | Included | Included |
+| Signed webhooks | — | — | Included |
+| Redistribution rights | — | — | Per contract |
+
+<Info>
+  Plan enforcement, historical data, snapshots, incremental updates, webhooks,
+  and embeds are **planned** and roll out in stages. Today every key has access
+  to the six current-data endpoints under the existing route limits. Pages that
+  describe planned behavior are labeled, and the
+  [changelog](/api-reference/changelog) tracks what is live.
+</Info>
+
+Full details, including what counts toward the quota and how attribution earns extra capacity, are on [Plans and quotas](/api-reference/plans-and-quotas). Manage your plan from the [developer console](https://llm-stats.com/developer).
 
 ## Endpoints at a glance
 
@@ -39,6 +56,22 @@ Request access and create keys from the [developer console](https://llm-stats.co
 | GET    | `/v1/updates`              | Recently added models (1–30 day lookback)                    |
 
 See the [Endpoints](/api-reference) section for full request and response schemas.
+
+<Note>
+  `/v1/updates` lists **recently added models** within a lookback window. It is
+  not a change feed: it does not report score, ranking, or pricing changes, and
+  it has no cursor. For durable creates, updates, and removals after a cursor,
+  see the [incremental updates API](/api-reference/incremental-updates).
+</Note>
+
+Planned data routes:
+
+| Method | Path | Plan | Page |
+| --- | --- | --- | --- |
+| GET | `/v1/models/{id}/history`, `/v1/rankings/history` | All (window varies) | [Historical data](/api-reference/historical-data) |
+| GET | `/v1/snapshots`, `/v1/snapshots/{snapshot_id}/download` | Builder, Commercial | [Bulk snapshots](/api-reference/bulk-snapshots) |
+| GET | `/v1/changes` | Builder, Commercial | [Incremental updates](/api-reference/incremental-updates) |
+| GET | `/v1/account` | All | [Rate limits and headers](/api-reference/rate-limits-and-headers#check-your-quota) |
 
 ## Discovering gateway-routable models
 
@@ -66,33 +99,11 @@ canonical id to pass as `model`:
 When `available` is `false`, the optional fields are omitted —
 that model is in the catalog but cannot be called through the gateway.
 
-## Errors
+## Errors, limits, and headers
 
-Every error uses the same envelope, so you only need to write the handling code once.
+- Every error uses one envelope with a stable `error.code`. See [Errors](/api-reference/errors).
+- Burst limits and daily quotas apply per **organization**, not per API key. Creating another key does not create another quota pool. See [Rate limits and headers](/api-reference/rate-limits-and-headers).
 
-```json
-{
-  "error": {
-    "code": "not_found",
-    "message": "Human-readable explanation.",
-    "param": "model_id"
-  }
-}
-```
+## Attribution and rights
 
-`code` is the contract — branch on it, never on `message`.
-
-## Rate limits
-
-Limits are applied per API key, per endpoint:
-
-| Endpoint                  | Limit         |
-| ------------------------- | ------------- |
-| `/v1/models/{id}`         | 120 / minute  |
-| `/v1/rankings`            | 120 / minute  |
-| `/v1/models`              | 60 / minute   |
-| `/v1/benchmarks`          | 60 / minute   |
-| `/v1/updates`             | 60 / minute   |
-| `/v1/scores`              | 30 / minute   |
-
-Exceeding a limit returns HTTP `429` with the standard error envelope and a `Retry-After` header. Need higher limits? [Get in touch](mailto:founders@llm-stats.com).
+Community use is free within its limits and requires attribution when you show LLM Stats data publicly. Payment never grants redistribution rights: only a Commercial contract does. See [Attribution](/api-reference/attribution) and [Embeds and badges](/api-reference/embeds-and-badges).

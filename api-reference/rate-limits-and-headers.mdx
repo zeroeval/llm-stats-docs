@@ -1,0 +1,184 @@
+---
+title: "Rate limits and headers"
+description: "Burst limits, quota headers, 429 handling, idempotency, and caching headers on Stats API responses."
+---
+
+Two independent limits apply to every organization:
+
+| Limit | Scope | Window | Exceeded → |
+| --- | --- | --- | --- |
+| **Burst limit** | Every authenticated request, any status | Rolling 60 seconds | `429` `rate_limit_exceeded` |
+| **Daily quota** | Successful (`2xx`) data responses only | Resets `00:00:00 UTC` | `429` `quota_exceeded` |
+
+Both are counted **per organization**, not per API key. Splitting traffic across keys does not raise either limit.
+
+<Info>
+  **Rollout status.** Organization-level burst limits and the `X-RateLimit-*`,
+  `X-Quota-*`, and `X-LLM-Stats-Plan` headers are planned. Today, requests are
+  limited per client and per route (`/v1/models` and `/v1/rankings` 60/min,
+  `/v1/scores` 120/min, `/v1/updates` 30/min) and return `429` with
+  `Retry-After` when exceeded. Those route limits remain in place as an abuse
+  backstop after launch and are not the product quota. See the
+  [changelog](/api-reference/changelog).
+</Info>
+
+## Burst limits by plan
+
+| Plan | Requests per minute per organization |
+| --- | --- |
+| Community | 60 |
+| Builder | 300 |
+| Commercial | 600 by default, or as contracted |
+
+The counter increments on every authenticated request, including `304`, `4xx`, and `5xx` responses. Requests rejected before authentication (missing or invalid key) are limited per client IP instead.
+
+## Response headers
+
+Every authenticated `/stats/v1/*` response carries these headers.
+
+| Header | Example | Meaning |
+| --- | --- | --- |
+| `X-RateLimit-Limit` | `300` | Burst limit for your plan (requests per minute). |
+| `X-RateLimit-Remaining` | `287` | Requests left in the current minute. |
+| `X-RateLimit-Reset` | `1788798260` | Unix timestamp when the burst window resets. |
+| `X-Quota-Limit` | `5000` | Daily data-response quota, including any [verified-attribution bonus](/api-reference/plans-and-quotas#verified-attribution-bonus). |
+| `X-Quota-Used` | `1204` | Data responses counted today. |
+| `X-Quota-Remaining` | `3796` | Data responses left today. |
+| `X-Quota-Reset` | `1788825600` | Unix timestamp of the next `00:00:00 UTC`. |
+| `X-LLM-Stats-Plan` | `builder` | Plan code: `community`, `builder`, or `commercial`. |
+| `X-Request-ID` | `req_01J...` | Unique request id. Include it in support requests. |
+| `X-Cache` | `HIT` or `MISS` | Data routes only. Cache hits still count toward the daily quota. |
+| `Retry-After` | `17` | On `429` only. Seconds to wait before retrying. |
+
+<Note>
+  Headers reflect the state **after** the current request was counted. A
+  response with `X-Quota-Remaining: 0` succeeded; the next data request will
+  return `429`.
+</Note>
+
+Commercial organizations with an unlimited daily quota receive `X-Quota-Limit: unlimited` and no `X-Quota-Used` or `X-Quota-Remaining` headers.
+
+Header values are read from a fast counter and may lag the exact number by a few requests under heavy parallelism. Treat them as guidance, not a ledger.
+
+## Handle 429 responses
+
+A `429` carries the standard [error envelope](/api-reference/errors) and tells you which limit you hit.
+
+<CodeGroup>
+```json Burst limit
+{
+  "error": {
+    "code": "rate_limit_exceeded",
+    "message": "Organization burst limit of 60 requests per minute exceeded.",
+    "limit_type": "burst",
+    "plan": "community",
+    "reset_at": "2026-09-07T16:22:00Z",
+    "request_id": "req_01J8ZC7Q2W",
+    "help_url": "https://docs.llm-stats.com/api-reference/rate-limits-and-headers"
+  }
+}
+```
+
+```json Daily quota
+{
+  "error": {
+    "code": "quota_exceeded",
+    "message": "Daily quota of 500 data responses used. Resets at 00:00 UTC.",
+    "limit_type": "daily_quota",
+    "plan": "community",
+    "reset_at": "2026-09-08T00:00:00Z",
+    "request_id": "req_01J8ZC7Q2X",
+    "help_url": "https://llm-stats.com/developer?tab=billing"
+  }
+}
+```
+</CodeGroup>
+
+Recommended handling:
+
+1. Read `error.limit_type`.
+2. For `burst`, sleep for `Retry-After` seconds (add a little jitter) and retry. Bound the retries.
+3. For `daily_quota`, stop making data requests until `reset_at`. Retrying sooner returns the same error. Surface the condition to whoever can upgrade the plan.
+4. Never retry in a tight loop: `429` responses still count toward the burst limit.
+
+```python
+import time, random, requests
+
+def get(url, key):
+    for attempt in range(5):
+        r = requests.get(url, headers={"Authorization": f"Bearer {key}"})
+        if r.status_code != 429:
+            return r
+        err = r.json()["error"]
+        if err.get("limit_type") == "daily_quota":
+            raise RuntimeError(f"Quota exhausted until {err['reset_at']}")
+        time.sleep(int(r.headers.get("Retry-After", "1")) + random.random())
+    raise RuntimeError("Still rate limited after 5 attempts")
+```
+
+## Idempotency-Key
+
+Send `Idempotency-Key` (up to 128 characters) on requests you might retry after a client-side timeout. Repeated requests with the same key from the same organization and API key on the same UTC day reserve one unit of daily quota, not one per attempt. The key does not affect the burst counter or the response body.
+
+```bash
+curl https://api.llm-stats.com/stats/v1/models?limit=200 \
+  -H "Authorization: Bearer $LLM_STATS_API_KEY" \
+  -H "Idempotency-Key: nightly-catalog-2026-09-07-p1"
+```
+
+Keys are scoped to a single UTC day; reuse across days counts as new requests.
+
+## Caching headers
+
+Data routes return standard HTTP caching headers. Using them is the cheapest way to save quota, because a `304` costs nothing.
+
+| Header | Use |
+| --- | --- |
+| `Cache-Control` | `public, max-age=60` on data routes today. Cache at least that long. |
+| `ETag` | Send back as `If-None-Match`. Planned. |
+| `Last-Modified` | Send back as `If-Modified-Since`. Planned. |
+| `X-Cache` | Whether the response was served from cache. Informational. Planned. |
+
+```bash
+curl -i https://api.llm-stats.com/stats/v1/models/gpt-5-2025-08-07 \
+  -H "Authorization: Bearer $LLM_STATS_API_KEY" \
+  -H 'If-None-Match: "8a1b2c3d"'
+# HTTP/2 304  → no quota consumed
+```
+
+<Note>
+  `ETag` and `Last-Modified` ship with plan enforcement. Until then, data
+  routes return `200` with `Cache-Control` only.
+</Note>
+
+## Check your quota
+
+`GET /v1/account` is a meta route (exempt from the daily quota) that returns your plan and current usage.
+
+```json
+{
+  "organization_id": "org_9f3b",
+  "plan": "builder",
+  "plan_version": 1,
+  "features": ["history", "snapshots", "incremental"],
+  "quota": {
+    "daily_limit": 5250,
+    "daily_used": 1204,
+    "daily_remaining": 4046,
+    "reset_at": "2026-09-08T00:00:00Z",
+    "verified_integration_bonus": 250
+  },
+  "burst": {
+    "limit_per_minute": 300
+  },
+  "history": {
+    "window_days": 365,
+    "earliest_available": "2026-01-01"
+  }
+}
+```
+
+<Note>
+  `/v1/account` is planned and ships with plan enforcement. Until then, view
+  usage in the [developer console](https://llm-stats.com/developer).
+</Note>
