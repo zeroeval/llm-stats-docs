@@ -1,0 +1,137 @@
+---
+title: "Plans and quotas"
+description: "What each plan includes, how daily quotas are counted, and how to stay within them."
+---
+
+The Stats API has three plans. The plan is attached to your **organization**, and every API key and official MCP connection in the organization shares one daily quota and one burst limit.
+
+<Info>
+  **Rollout status.** Plan enforcement is planned and rolls out in stages.
+  Today every key has access to the current-data endpoints under the existing
+  route limits. When enforcement ships, the quotas on this page apply and the
+  response headers described in
+  [Rate limits and headers](/api-reference/rate-limits-and-headers) become
+  available. Follow the [changelog](/api-reference/changelog) for effective
+  dates.
+</Info>
+
+## Compare plans
+
+| | Community | Builder | Commercial |
+| --- | --- | --- | --- |
+| Price | Free | $99/month | Contract-specific |
+| Intended use | Personal projects, research, open source, evaluation | Internal tools, products that consume the data | Redistribution, private data, guaranteed service |
+| Daily quota (successful data responses per organization) | 500 | 5,000 | Contract-specific |
+| Burst limit (requests per minute per organization) | 60 | 300 | 600 by default |
+| Current data (`/v1/models`, `/v1/scores`, `/v1/rankings`, …) | Included | Included | Included |
+| [Historical data](/api-reference/historical-data) | Rolling 6 months | Rolling 12 months | Full or contract-specific |
+| [Bulk snapshots](/api-reference/bulk-snapshots) | — | Latest snapshot | Per contract |
+| [Incremental updates](/api-reference/incremental-updates) | — | Included | Included |
+| [Webhooks](/api-reference/webhooks) | — | — | Included |
+| Support | Community | Email | Contractual |
+| Attribution | Required for public display | Not required | Per contract |
+| Redistribution | Not permitted | Not permitted | Per contract |
+
+Prices are in USD and exclude tax. Upgrade, downgrade, and see live usage in the [developer console](https://llm-stats.com/developer). Billing settings are under [Billing](https://llm-stats.com/developer?tab=billing).
+
+### Technical access is not a right to redistribute
+
+Every plan grants **technical access** to the data. **Rights** to use the data are governed by the [API terms](https://llm-stats.com/legal/api-terms):
+
+- Community and Builder cover use inside your own product or organization. You may display LLM Stats data to your users, with [attribution](/api-reference/attribution) when the plan requires it.
+- Neither Community nor Builder lets you resell, sublicense, or ship the dataset (or a substantial extract of it) as a product, dataset, or API of your own.
+- Redistribution, white-label use, private or early data, and contractual support or service guarantees are only available on Commercial. Paying for Builder never implies redistribution rights.
+
+If you are unsure which side of the line you are on, [contact sales](https://llm-stats.com/contact-sales) before launch.
+
+### When to move from Builder to Commercial
+
+Move to Commercial when you need any of:
+
+- More than 5,000 data responses per day or a burst limit above 300 requests per minute.
+- History older than 12 months, or scheduled snapshots beyond the latest one.
+- Push delivery with [webhooks](/api-reference/webhooks).
+- Redistribution, resale, or embedding the dataset in a product you sell.
+- A signed data-processing agreement, uptime commitment, or named support.
+
+## How the daily quota works
+
+<Steps>
+  <Step title="One pool per organization">
+    All API keys in your organization, plus official MCP connections, draw from one pool. Projects and workspaces do not split the pool.
+  </Step>
+  <Step title="Successful data responses count">
+    A **data response** is any `2xx` response from a data route under `/stats/v1/*`. Cache hits count the same as fresh responses. Each unit is one HTTP response regardless of page size, so fetch the largest page that suits you.
+  </Step>
+  <Step title="Failures do not count">
+    `4xx` and `5xx` responses do not consume daily quota. Rate-limited (`429`) and quota-exceeded requests do not consume it either. A `3xx` response counts only when it delivers a data result: `304 Not Modified` never counts, while the `302` from a [snapshot download](/api-reference/bulk-snapshots) counts as one data response because it hands you the file.
+  </Step>
+  <Step title="Reset at midnight UTC">
+    Usage resets at `00:00:00 UTC` every day. `X-Quota-Reset` carries the Unix timestamp of the next reset.
+  </Step>
+</Steps>
+
+### Exempt requests
+
+These never consume daily quota, though they still count toward the burst limit once authenticated:
+
+- Meta routes such as `GET /v1/account`.
+- Health, OpenAPI, and documentation routes.
+- Requests rejected before authentication completes (missing or invalid key).
+
+### Burst protection
+
+Separately from the daily quota, every authenticated request — successful or not — increments a rolling per-minute counter for your organization. Exceeding it returns `429` with `error.code: "rate_limit_exceeded"` and a `Retry-After` header. Burst limits protect the service; the daily quota is what your plan sells. See [Rate limits and headers](/api-reference/rate-limits-and-headers).
+
+### Retries and idempotency
+
+Retrying a request that failed with `429` or `5xx` costs nothing, because failures do not count. Retrying a request that *succeeded* but whose response you lost (a timeout on your side, for example) would normally count twice. To avoid that, send an `Idempotency-Key` header (up to 128 characters, unique per logical request). Within the same day, repeated requests with the same key from the same organization and API key reserve quota only once.
+
+```bash
+curl https://api.llm-stats.com/stats/v1/scores?benchmark=gpqa \
+  -H "Authorization: Bearer $LLM_STATS_API_KEY" \
+  -H "Idempotency-Key: sync-2026-09-07-gpqa-page-1"
+```
+
+### Verified-attribution bonus
+
+Community and Builder organizations earn **+250 data responses per day for each verified integration**, up to two integrations (+500 per day). The bonus is fixed and does not scale with traffic. Integrations become verified once the LLM Stats badge or source link is observed on your declared public URL. See [Attribution](/api-reference/attribution) for the lifecycle and evidence rules.
+
+## Stay within quota
+
+<AccordionGroup>
+  <Accordion title="Use conditional requests">
+    Data routes will return `ETag` and `Last-Modified` (planned, ships with plan enforcement). Send `If-None-Match` (or `If-Modified-Since`) on repeat fetches. A `304 Not Modified` costs no quota.
+
+    ```bash
+    curl -i https://api.llm-stats.com/stats/v1/rankings?category=coding \
+      -H "Authorization: Bearer $LLM_STATS_API_KEY" \
+      -H 'If-None-Match: "3f2a9c1e"'
+    ```
+  </Accordion>
+  <Accordion title="Fetch large pages">
+    One response is one unit whatever its size. Use the maximum `limit` a route allows rather than many small pages.
+  </Accordion>
+  <Accordion title="Cache on your side">
+    Scores and rankings change at most a few times a day. Respect the `Cache-Control` header and cache responses for at least the returned `max-age`.
+  </Accordion>
+  <Accordion title="Sync instead of poll (Builder and Commercial)">
+    Pull a [bulk snapshot](/api-reference/bulk-snapshots) once, then apply [incremental updates](/api-reference/incremental-updates) from a cursor. A daily sync typically costs a handful of responses instead of thousands of polls.
+  </Accordion>
+  <Accordion title="Watch the headers">
+    `X-Quota-Remaining` tells you how much is left today. Alert when it drops below the amount you expect to need before `X-Quota-Reset`.
+  </Accordion>
+</AccordionGroup>
+
+## What happens at the limit
+
+When the organization has used its daily quota, data routes return `429` with `error.code: "quota_exceeded"`, `limit_type: "daily_quota"`, and `reset_at` set to the next UTC midnight. Meta routes keep working so you can still read your account state. Upgrade from the developer console to lift the limit immediately; the new plan's quota applies from the next request.
+
+## Migration for existing keys
+
+If you created a key before plan enforcement launched:
+
+- Your organization starts on **Community** unless you subscribe to Builder or sign a Commercial agreement.
+- Access is not interrupted at launch. During the migration window, quota headers appear on responses so you can measure your usage before limits are enforced. The exact enforcement date is announced in the [changelog](/api-reference/changelog) and by email to the address on your developer account.
+- Organizations whose observed usage exceeds Community limits at launch receive a grace period before enforcement. Grace terms are communicated individually and are not permanent grandfathering.
+- The old "per API key, per endpoint" limits described in earlier versions of these docs are replaced by the per-organization quota and burst limits above.

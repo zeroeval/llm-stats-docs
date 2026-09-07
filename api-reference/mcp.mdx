@@ -8,6 +8,18 @@ The LLM Stats MCP server gives AI agents access to the model catalog, benchmark 
 
 The server is hosted and read-only over the [Stats API](/api-reference/introduction). Cursor, Claude Code, Claude Desktop, Continue, and ChatGPT Apps connect directly.
 
+## Quota
+
+MCP tool calls are Stats API requests. Each successful data result draws from your organization's daily quota — the same pool your REST API keys use — and counts toward the organization burst limit. Official MCP connections (OAuth sign-in) are identified server-side as `mcp` traffic in your usage reports; you do not need to send the `X-LLM-Stats-Client` header.
+
+Workflow tools such as `compare-models` chain several API calls and consume one data response per underlying call. See [Plans and quotas](/api-reference/plans-and-quotas) for limits and counting rules.
+
+<Note>
+  Organization-level quota enforcement is planned. Until it ships, MCP calls
+  are subject to the same route limits as REST calls. See the
+  [changelog](/api-reference/changelog).
+</Note>
+
 ## Setup
 
 Point your MCP client at the hosted server. No installation required.

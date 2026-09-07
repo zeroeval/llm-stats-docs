@@ -1,0 +1,121 @@
+---
+title: "Historical data"
+description: "Time series for model scores, rankings, and pricing, with rolling windows that depend on your plan."
+---
+
+<Info>
+  **Planned.** History routes are specified here so you can design against
+  them; they return `404` until launch. Follow the
+  [changelog](/api-reference/changelog) for the release date.
+</Info>
+
+History endpoints return how a value changed over time: a model's score on a benchmark, its rank in a category, or its price. Each plan sees a rolling window ending today.
+
+| Plan | Rolling window |
+| --- | --- |
+| Community | 6 months |
+| Builder | 12 months |
+| Commercial | Full history, or as contracted |
+
+## Endpoints
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/v1/models/{model_id}/history` | Time series for one model. |
+| GET | `/v1/rankings/history` | Time series of rank positions in a category. |
+
+Both require the `history` feature, which every plan includes. Each response counts as one data response toward your [daily quota](/api-reference/plans-and-quotas).
+
+### Model history
+
+```bash
+curl "https://api.llm-stats.com/stats/v1/models/gpt-5-2025-08-07/history?kind=score&benchmark_id=gpqa&from=2026-06-01&to=2026-09-01" \
+  -H "Authorization: Bearer $LLM_STATS_API_KEY"
+```
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `kind` | string, required | `score`, `ranking`, `pricing`, or `metadata`. |
+| `benchmark_id` | string | Benchmark id. Narrows `kind=score` to one benchmark; omit to get all benchmarks. |
+| `category_id` | string | Category id. Narrows `kind=ranking` to one category; omit to get all categories. |
+| `from` | date | Inclusive start (`YYYY-MM-DD`). Defaults to 400 days before `to`, clamped to the start of your window. |
+| `to` | date | Inclusive end. Defaults to today. |
+
+Points are daily. A single request may span at most 400 days; paginate by date for longer ranges.
+
+### Rankings history
+
+```bash
+curl "https://api.llm-stats.com/stats/v1/rankings/history?category_id=code&from=2026-08-01&top=10" \
+  -H "Authorization: Bearer $LLM_STATS_API_KEY"
+```
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `category_id` | string, required | Category id (`general`, `code`, `math`, …). |
+| `from`, `to` | date | Inclusive date range, same defaults and 400-day cap as above. |
+| `top` | integer | Number of top positions to include per date (default 10, max 50). |
+
+## Response shape
+
+```json
+{
+  "model_id": "gpt-5-2025-08-07",
+  "kind": "score",
+  "points": [
+    { "date": "2026-06-01", "value": 87.4, "benchmark_id": "gpqa", "category_id": null, "payload": { "n": 448 }, "source": "capture" },
+    { "date": "2026-06-02", "value": 87.4, "benchmark_id": "gpqa", "category_id": null, "payload": { "n": 448 }, "source": "capture" }
+  ],
+  "window": {
+    "from": "2026-06-01",
+    "to": "2026-09-01",
+    "plan_limit_from": "2026-03-07",
+    "available_from": "2026-03-01"
+  }
+}
+```
+
+`/v1/rankings/history` has the same shape with `category_id` in place of `model_id` and `kind` fixed to `ranking`.
+
+- `points` are sorted ascending by `date`, one per day with recorded data. Days without a recorded value are absent, not interpolated.
+- `benchmark_id` and `category_id` identify the series a point belongs to when you did not narrow the request.
+- `source` is `capture` for values recorded by the nightly snapshot, or `backfill` for values reconstructed from a source table (pricing only).
+- `payload` carries kind-specific context (sample size, currency, position count). Its keys may grow; ignore ones you do not know.
+- `window` tells you what was actually served: `plan_limit_from` is the oldest date your plan may query (`null` means unlimited) and `available_from` is the first day with real data for this `kind` (`null` until collection has run).
+
+## Window clamping
+
+`from` is clamped to the later of your plan window start and the launch date:
+
+- If `from` is **inside** your window, you get exactly what you asked for.
+- If you omit `from`, the API uses the later of the default start and `window.plan_limit_from`.
+- If you set `from` explicitly to a date before your window, the API returns `403` with `error.code: "history_window_exceeded"`, `param: "from"`, and the earliest date you may request in `message`. Clamp on your side or upgrade.
+
+```json
+{
+  "error": {
+    "code": "history_window_exceeded",
+    "message": "Community plan includes 6 months of history. Earliest available from is 2026-03-07.",
+    "param": "from",
+    "plan": "community",
+    "help_url": "https://docs.llm-stats.com/api-reference/historical-data"
+  }
+}
+```
+
+Windows are **rolling**: the earliest date you can request moves forward every day. A Community integration that stores history locally should fetch it while it is in the window.
+
+## Launch-date limitation
+
+<Warning>
+  History is available from the launch date of history collection onward.
+  Score and ranking history is **not backfilled** before that date: we record
+  values from the moment collection started, and an upgrade to Commercial does
+  not reveal earlier scores because none were recorded.
+</Warning>
+
+Pricing series may include older source data where we hold it (points marked `source: "backfill"`), but do not assume universal backfill. `window.available_from` always tells you the true earliest point for that kind. The launch date is published in the [changelog](/api-reference/changelog) when history ships.
+
+## Choosing between history and snapshots
+
+Use history endpoints for a few models or a single category chart. Use [bulk snapshots](/api-reference/bulk-snapshots) plus [incremental updates](/api-reference/incremental-updates) when you need the full dataset over time — one snapshot costs one data response, whereas fetching history for every model costs one per model.

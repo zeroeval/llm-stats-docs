@@ -1,0 +1,126 @@
+---
+title: "Attribution"
+description: "When you must credit LLM Stats, how to do it, and how verified integrations earn extra daily quota."
+---
+
+<Info>
+  **Attribution requirements** apply to public Community use from the start
+  of plan enforcement. **Integration verification and the quota bonus are
+  planned** and are specified here so you can prepare. See the
+  [changelog](/api-reference/changelog).
+</Info>
+
+## When attribution is required
+
+| Plan | Public display of LLM Stats data |
+| --- | --- |
+| Community | Attribution **required** |
+| Builder | Not required (still welcome, and still earns the bonus) |
+| Commercial | Per contract |
+
+"Public display" means showing scores, rankings, prices, or derived charts to anyone outside your organization — a website, an app, a newsletter, a public dashboard, a bot reply. Internal tools do not need attribution on any plan.
+
+Attribution is a **licensing** requirement, not a technical one: the API does not block unattributed Community use, but unattributed public use is a terms violation that can lead to `entitlement_suspended`. See [Acceptable use](/api-reference/errors#acceptable-use).
+
+## How to attribute
+
+Any of these satisfy the requirement. Choose the one that fits your surface.
+
+<Tabs>
+  <Tab title="Badge (recommended)">
+    A signed badge image linking back to the source. Badge loads from your allowed host are the observation evidence we record for an integration. See [Embeds and badges](/api-reference/embeds-and-badges).
+
+    ```html
+    <a href="https://api.llm-stats.com/embed/TOKEN/go" rel="noopener">
+      <img src="https://api.llm-stats.com/embed/TOKEN/badge.svg" alt="Data from LLM Stats" height="20" />
+    </a>
+    ```
+  </Tab>
+  <Tab title="Source link">
+    A visible text link near the data.
+
+    ```html
+    <p>Benchmark data by <a href="https://llm-stats.com?utm_source=YOUR_INTEGRATION">LLM Stats</a>.</p>
+    ```
+
+    Use the same `utm_source` you declare on the integration so a reviewer can match it. A source link can be combined with a [`source_link` badge](/api-reference/embeds-and-badges#badge) so the integration is observable.
+  </Tab>
+  <Tab title="Plain text">
+    For surfaces without links (bot replies, PDFs, printed reports):
+
+    ```text
+    Source: LLM Stats (llm-stats.com), retrieved 2026-09-07.
+    ```
+  </Tab>
+</Tabs>
+
+Requirements for any form:
+
+- Visible without interaction, on the same screen as the data or in a clearly labeled footer.
+- Names "LLM Stats" and, where links are possible, links to `llm-stats.com` or the model page.
+- Not hidden by `display: none`, tiny fonts, or same-color text.
+- Does not imply LLM Stats endorses your product.
+
+## Verified integrations
+
+An **integration** is a public place where you show LLM Stats data. Declaring it and getting it verified will earn a fixed quota bonus once the bonus ships (see the rollout status above).
+
+| | Community | Builder |
+| --- | --- | --- |
+| Bonus per verified integration | +250 data responses/day | +250 data responses/day |
+| Maximum verified integrations | 2 (+500/day) | 2 (+500/day) |
+
+The bonus is fixed — it does not grow with traffic — and will be reflected in `X-Quota-Limit` and `/v1/account` when an integration becomes verified.
+
+### Lifecycle
+
+```text
+declared ──▶ observed ──▶ verified ──▶ grace ──▶ revoked
+                 │            ▲          │
+                 └── rejected  └─────────┘ (re-verified)
+```
+
+| State | Meaning | Bonus |
+| --- | --- | --- |
+| `declared` | You registered a public URL and chose an attribution method in the developer console. | No |
+| `observed` | Your badge has been loaded from the allowed host on at least one day (see [evidence](#what-we-measure)). | No |
+| `verified` | LLM Stats has reviewed the integration and confirmed the attribution. Verification is a manual review today; observation evidence makes an integration eligible but does not verify it on its own. | **Yes** |
+| `grace` | A verified integration stopped showing attribution. You have 14 days to restore it before the bonus is removed. Re-verification returns it to `verified`. | Yes, during grace |
+| `revoked` | Attribution stayed missing through the grace period, or the integration was removed for misuse. | No |
+| `rejected` | The URL is not a public page you control, the attribution is hidden or misleading, or the integration duplicates another one. | No |
+
+Only `verified` and `grace` carry the bonus. Declaring an integration alone changes nothing.
+
+### What we measure
+
+What we record automatically today:
+
+- **Observation days**: each UTC day on which your badge is loaded with a `Referer` matching the allowed host counts as one observed day. Referer-less loads render but are not evidence.
+- **Eligibility**: an `observed` integration with at least 7 observed days and a badge load within the last 30 days is recorded as eligible for review. Eligibility does not change the state or grant the bonus by itself.
+- **Clicks**: `/go` redirects are counted per day so you and we can see that the badge sends real traffic.
+
+What a reviewer checks before marking an integration `verified`:
+
+- **Presence**: the declared URL shows the badge or a link to `llm-stats.com` carrying your `utm_source`.
+- **Visibility**: the element is rendered (not `display: none`, not off-canvas, contrast above a minimum).
+- **Consistency**: the page continues to show the data it attributes.
+
+Automatic verification after a period of observed days is **planned** and not yet enabled; until it ships, eligible integrations are verified by review. The eligibility threshold may change before then.
+
+### Re-verification, removal, and appeal
+
+- A `grace` integration returns to `verified` with no loss of bonus once the attribution is restored and confirmed.
+- A `revoked` integration can be re-declared after fixing the issue. It restarts at `declared`.
+- Deleting an integration removes its bonus immediately.
+- If you believe an integration was rejected or revoked in error, reply to the notification email with the URL and a screenshot. We review appeals within five business days.
+- We may revoke integrations that violate [acceptable use](/api-reference/errors#acceptable-use) — for example a badge on a page that strips attribution from the data itself, or a URL farm created to collect bonuses.
+
+## Privacy and analytics disclosure
+
+Badge and embed requests reach our servers, and we log the requesting IP, `Referer`, and user agent to verify integrations and to compute aggregate traffic. We do not set cookies from badges or embeds, and we do not use the logs for advertising. If your privacy policy lists third-party assets, list `api.llm-stats.com`. Retention of raw logs is 90 days.
+
+If you prefer not to send visitor requests to us, use a plain source link instead of a badge. Plain-link integrations can still be verified from page presence and referral traffic to `llm-stats.com`, though verification may take longer.
+
+## Attribution is not a license
+
+Attributing LLM Stats does not expand what you may do with the data. Community and Builder attribution covers display inside your own product. Redistribution — publishing the dataset, offering it through your own API, selling it — requires a Commercial agreement regardless of how prominently you credit us. See [Plans and quotas](/api-reference/plans-and-quotas#technical-access-is-not-a-right-to-redistribute).

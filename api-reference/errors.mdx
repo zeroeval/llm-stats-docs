@@ -1,0 +1,127 @@
+---
+title: "Errors and support"
+description: "The Stats API error envelope, stable error codes, and what support each plan includes."
+---
+
+Every error uses the same envelope, so you only need to write the handling code once. Branch on `error.code` — it is stable. Messages are for humans and may change.
+
+## Envelope
+
+```json
+{
+  "error": {
+    "code": "history_window_exceeded",
+    "message": "Community plan includes 6 months of history. Requested from=2025-01-01 is earlier than 2026-03-07.",
+    "param": "from",
+    "plan": "community",
+    "help_url": "https://docs.llm-stats.com/api-reference/historical-data",
+    "request_id": "req_01J8ZC7Q2W"
+  }
+}
+```
+
+<ResponseField name="error.code" type="string" required>
+  Stable, machine-readable error code. **This is the contract** — branch on it in your code. New codes may be added; unknown codes should fall through to your generic handler based on HTTP status.
+</ResponseField>
+
+<ResponseField name="error.message" type="string" required>
+  Human-readable explanation. Log it, show it to operators, but do not parse it.
+</ResponseField>
+
+<ResponseField name="error.param" type="string">
+  Query or path parameter the error refers to, when it refers to one (for example `from`, `cursor`, `model_id`).
+</ResponseField>
+
+<ResponseField name="error.help_url" type="string">
+  Link to the page where you can fix the problem: docs, the developer console, or billing.
+</ResponseField>
+
+<ResponseField name="error.limit_type" type="string">
+  On `429` only. `burst` for the per-minute limit, `daily_quota` for the daily data-response pool.
+</ResponseField>
+
+<ResponseField name="error.plan" type="string">
+  Your organization's plan code (`community`, `builder`, `commercial`) when the error is plan-related.
+</ResponseField>
+
+<ResponseField name="error.reset_at" type="string">
+  ISO 8601 timestamp when the limit resets. Present on `rate_limit_exceeded` and `quota_exceeded`.
+</ResponseField>
+
+<ResponseField name="error.request_id" type="string">
+  Same value as the `X-Request-ID` header. Include it in support requests.
+</ResponseField>
+
+<Note>
+  `limit_type`, `plan`, `reset_at`, and `request_id` are planned and ship with
+  plan enforcement. Existing fields (`code`, `message`, `param`, `help_url`)
+  are unchanged.
+</Note>
+
+## Codes
+
+| HTTP | `error.code` | Meaning | What to do |
+| --- | --- | --- | --- |
+| 400 | `invalid_parameter` | A parameter is malformed or out of range. `param` names it. | Fix the request. Do not retry unchanged. |
+| 401 | `authentication_required` | Missing or malformed `Authorization` header. | Send `Authorization: Bearer <key>`. |
+| 401 | `invalid_api_key` | Key unknown or revoked. | Create a new key in the [developer console](https://llm-stats.com/developer). |
+| 403 | `stats_api_access_denied` | Organization has not completed the access form. | Complete access at `help_url`. |
+| 403 | `stats_api_access_revoked` | Access was revoked for your organization. | Contact [support](mailto:founders@llm-stats.com). |
+| 403 | `entitlement_suspended` | Plan suspended, usually for unpaid invoices or terms violations. | Resolve billing or contact support. |
+| 403 | `feature_not_in_plan` | Route requires a feature (`history`, `snapshots`, `incremental`, `webhooks`) your plan lacks. | Upgrade, or remove the call. |
+| 403 | `history_window_exceeded` | `from` precedes your plan's rolling history window. | Clamp `from` to the window, or upgrade. See [Historical data](/api-reference/historical-data). |
+| 404 | `not_found` | Unknown model, benchmark, snapshot, or route. | Check the id. |
+| 410 | `cursor_expired` | Incremental-updates cursor is older than the retention window. | Resync from a [snapshot](/api-reference/bulk-snapshots). |
+| 429 | `rate_limit_exceeded` | Organization burst limit hit. `limit_type: "burst"`. | Wait `Retry-After` seconds, then retry. |
+| 429 | `quota_exceeded` | Daily data-response quota used. `limit_type: "daily_quota"`. | Stop until `reset_at`, or upgrade. |
+| 402 | `billing_not_configured` | Paid plan selected but no payment method on file. | Add a payment method at `help_url`. |
+| 503 | `quota_service_unavailable` | The quota service is unavailable and the request could not be admitted. | Retry with backoff. Failures do not consume quota. |
+| any | `http_error` | Generic fallback for errors without a specific code, including `5xx`. | Use the HTTP status. Retry `5xx` once with backoff, then report `request_id`. |
+
+`404` on a route you expect to exist usually means the feature has not launched yet for anyone. Check the [changelog](/api-reference/changelog).
+
+<Note>
+  Live today: `invalid_parameter`, `not_found`, `http_error`, and the
+  authentication and access codes (`authentication_required`,
+  `invalid_api_key`, `stats_api_access_denied`, `stats_api_access_revoked`).
+  The entitlement, quota, history, and cursor codes are planned and ship with
+  the features they belong to. Until organization-level limits launch, the
+  per-route backstop returns a plain `429` with `Retry-After` and no envelope.
+</Note>
+
+## Retry guidance
+
+| Code | Retry? |
+| --- | --- |
+| `rate_limit_exceeded` | Yes, after `Retry-After`. |
+| `quota_exceeded` | Not until `reset_at`. |
+| `quota_service_unavailable`, `http_error` with a `5xx` status | Yes, exponential backoff with jitter, max 3–5 attempts. Add an [`Idempotency-Key`](/api-reference/rate-limits-and-headers#idempotency-key) if you retry across timeouts. |
+| Everything else | No. Fix the request or the account. |
+
+## Support by plan
+
+| | Community | Builder | Commercial |
+| --- | --- | --- | --- |
+| Channel | [Community discussions](https://github.com/zeroeval/llm-stats-docs/issues) and docs | Email, best effort | Named contact, contractual response times |
+| Data corrections | Report via the site; fixed on the normal publishing cadence | Same, prioritized when the error affects your product | Per contract |
+| Incident updates | Public status and [changelog](/api-reference/changelog) | Public status plus email for incidents longer than one hour | Per contract, including post-incident reports |
+| Uptime | Service target, not a guarantee | Service target, not a guarantee | Contractual SLA with remedies |
+
+**Service targets** describe how we run the service and what you can expect in practice. They are not commitments and carry no remedies. **SLAs** are only available on Commercial contracts and define uptime, response times, and remedies in writing. If your product needs a guarantee, you need a Commercial agreement — Builder does not provide one at any usage level.
+
+### Incidents and data corrections
+
+- Availability incidents are announced on the public status channel and summarized in the changelog once resolved.
+- When we correct published data (a mis-parsed score, a pricing typo), the correction flows through the normal endpoints, the [incremental updates](/api-reference/incremental-updates) feed, and — for Commercial — the `score.updated` or `pricing.updated` [webhook](/api-reference/webhooks). We do not rewrite history silently; historical points carry the corrected value from the correction date forward.
+- Report suspected data errors from the model page on [llm-stats.com](https://llm-stats.com) or by email with the `request_id` and the values you expected.
+
+## Acceptable use
+
+Regardless of plan, do not:
+
+- Share one organization's key across unrelated products to pool quota.
+- Scrape the website to bypass API limits.
+- Present LLM Stats data as your own measurements, or strip attribution the plan requires.
+- Redistribute the dataset, or substantial extracts, without a Commercial agreement.
+
+Violations lead to `entitlement_suspended` or `stats_api_access_revoked`. The full terms are at [llm-stats.com/legal/api-terms](https://llm-stats.com/legal/api-terms).

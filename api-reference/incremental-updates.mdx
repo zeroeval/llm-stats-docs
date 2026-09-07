@@ -1,0 +1,157 @@
+---
+title: "Incremental updates"
+description: "Keep a local copy in sync with a cursor-based change feed of creates, updates, and removals."
+---
+
+<Info>
+  **Planned.** `/v1/changes` is specified here so you can design against it;
+  it returns `404` until launch. Availability requires the `incremental`
+  feature (Builder and Commercial). Follow the
+  [changelog](/api-reference/changelog) for the release date.
+</Info>
+
+The change feed lets you replay every change to the dataset after a cursor: new models, updated scores and rankings, pricing changes, and removals. Combined with a [bulk snapshot](/api-reference/bulk-snapshots), it replaces polling the live endpoints.
+
+<Note>
+  This is **not** `/v1/updates`. `/v1/updates` returns recently **added
+  models** within a 1–30 day lookback, has no cursor, and does not report
+  score, ranking, pricing, or removal changes. Keep using it for a "what's new"
+  list; use `/v1/changes` for synchronization.
+</Note>
+
+## Sync model
+
+<Steps>
+  <Step title="Seed from a snapshot">
+    Import the latest [snapshot](/api-reference/bulk-snapshots) and keep its `change_cursor`.
+  </Step>
+  <Step title="Pull changes">
+    Call `GET /v1/changes?cursor=<saved>` and apply every event in order.
+  </Step>
+  <Step title="Advance the cursor">
+    Persist `next_cursor` only after the page is applied. Repeat while `has_more` is `true`.
+  </Step>
+  <Step title="Repeat on a schedule">
+    The feed has daily granularity, so a daily job is enough. Each page costs one data response.
+  </Step>
+</Steps>
+
+## Endpoint
+
+```bash
+curl "https://api.llm-stats.com/stats/v1/changes?cursor=MTg0NDI&limit=1000" \
+  -H "Authorization: Bearer $LLM_STATS_API_KEY"
+```
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `cursor` | string | Opaque position from a snapshot manifest or a previous `next_cursor`. Omit to start from the beginning of retention. |
+| `limit` | integer | Events per page, 1–1000. Default 1000. |
+| `entity_type` | string | Restrict to `model`, `score`, `ranking`, or `pricing`. |
+
+### Response
+
+```json
+{
+  "events": [
+    {
+      "seq": 18443,
+      "occurred_on": "2026-09-06",
+      "entity_type": "score",
+      "entity_id": "gpt-5-2025-08-07:gpqa",
+      "op": "upsert",
+      "data": {
+        "model_id": "gpt-5-2025-08-07",
+        "benchmark_id": "gpqa",
+        "value": 88.4,
+        "source": "official",
+        "measured_at": "2026-09-06",
+        "updated_at": "2026-09-06T09:12:00Z"
+      }
+    },
+    {
+      "seq": 18444,
+      "occurred_on": "2026-09-06",
+      "entity_type": "model",
+      "entity_id": "legacy-model-2024",
+      "op": "delete",
+      "data": null
+    }
+  ],
+  "next_cursor": "MTg0NDQ",
+  "has_more": false,
+  "retained_from": "2025-08-07"
+}
+```
+
+<ResponseField name="events[].seq" type="integer" required>
+  Monotonically increasing sequence number across the whole feed. The cursor is the base64url encoding of the last `seq` you applied.
+</ResponseField>
+
+<ResponseField name="events[].occurred_on" type="date" required>
+  UTC day the change was published. The feed has **daily granularity**: several changes to one entity on the same day are collapsed into one event carrying the end-of-day state.
+</ResponseField>
+
+<ResponseField name="events[].entity_type" type="string" required>
+  `model`, `score`, `ranking`, or `pricing`.
+</ResponseField>
+
+<ResponseField name="events[].entity_id" type="string" required>
+  Stable identifier for the record. Composite for `score` (`model_id:benchmark_id`), `ranking` (`model_id:category`), and `pricing` (`model_id:provider`).
+</ResponseField>
+
+<ResponseField name="events[].op" type="string" required>
+  `upsert` or `delete`. There is no separate create: the first `upsert` for an `entity_id` is a create.
+</ResponseField>
+
+<ResponseField name="events[].data" type="object | null" required>
+  Full current record for `upsert`, using the same fields as the corresponding [snapshot dataset](/api-reference/bulk-snapshots#file-format). `null` for `delete` (a tombstone).
+</ResponseField>
+
+<ResponseField name="next_cursor" type="string" required>
+  Pass as `cursor` on the next call. Present even when `has_more` is `false`, so you can resume later.
+</ResponseField>
+
+<ResponseField name="has_more" type="boolean" required>
+  `true` when more events exist after this page. Keep paging until `false`.
+</ResponseField>
+
+<ResponseField name="retained_from" type="date" required>
+  Earliest day still in the feed. Cursors before it are expired.
+</ResponseField>
+
+## Guarantees
+
+| Property | Guarantee |
+| --- | --- |
+| Ordering | Events are returned in ascending `seq`. Within one entity, later `seq` always reflects a later state. Across entities, `seq` order is the publication order, not causality — a `ranking` upsert may precede the `score` upsert that caused it. |
+| Upserts | `data` is the **full** record, not a diff. Overwrite your local row. |
+| Tombstones | A `delete` is a tombstone: remove the row (or mark it removed). A later `upsert` for the same `entity_id` can re-create it. |
+| Idempotency | Applying the same page twice yields the same state. Store `seq` per row and skip events with `seq` ≤ the stored one. |
+| Replay | Any cursor within retention can be replayed and returns identical events. Reading the feed does not consume or mutate it. |
+| At-least-once | The feed itself never drops events within retention. Your job may see a page twice if it crashes between applying and saving the cursor — idempotent application makes that harmless. |
+| Corrections | A corrected score or price is a new `upsert` with a later `seq`. History is not rewritten. |
+
+## Retention and cursor expiry
+
+Events are retained for **13 months**. If you pass a cursor older than `retained_from`, the API returns `410` with `error.code: "cursor_expired"`. Recover by re-importing the latest [snapshot](/api-reference/bulk-snapshots) and continuing from its `change_cursor`. A daily or weekly sync will never hit this; it exists to protect against jobs that were paused for a year.
+
+Omitting `cursor` starts from `retained_from`. That is 13 months of events — fine for a one-off, but a snapshot is cheaper for the initial load.
+
+## Schema changes
+
+Event `data` follows the snapshot `schema_version` in effect on `occurred_on`. Minor versions add optional fields; ignore unknown keys. Major versions are announced in the [changelog](/api-reference/changelog) 30 days ahead, and the feed emits a synthetic `upsert` for every affected entity on the cutover day so that consumers on the new schema converge without a resync.
+
+## Filtering and quota
+
+`entity_type` reduces the volume you pull but does not change cursors: `seq` values are global, so you can switch filters between calls without losing position. Each page is one data response regardless of `limit`, so always request `limit=1000`.
+
+## Full resynchronization
+
+Resync from a snapshot when:
+
+- You receive `cursor_expired`.
+- Your local checksums disagree with the manifest for a dataset you rebuilt.
+- A major `schema_version` bump changes fields you cannot migrate in place.
+
+A resync is the same five steps as the initial load and costs a handful of data responses.

@@ -1,0 +1,145 @@
+---
+title: "Webhooks"
+description: "Signed push notifications for model, score, ranking, pricing, and snapshot changes. Commercial only."
+---
+
+<Info>
+  **Planned. Commercial only.** Webhooks are specified here so you can design
+  against them and are not yet accepting endpoints. Contact your account
+  manager to join the pilot. Follow the [changelog](/api-reference/changelog)
+  for the release date.
+</Info>
+
+Webhooks notify your endpoint when the dataset changes, so you can pull the affected records (or the next change-feed page) immediately instead of waiting for a scheduled sync. They require the `webhooks` feature, which is only available on Commercial plans.
+
+Webhooks are a **signal**, not a data channel. Payloads identify what changed; fetch the current state from the API or the [change feed](/api-reference/incremental-updates). Deliveries are not counted against your daily quota; the fetches they trigger are.
+
+## Topics
+
+| Topic | Fires when |
+| --- | --- |
+| `model.created` | A model is added to the catalog. |
+| `score.updated` | A benchmark score is added or corrected. |
+| `ranking.updated` | A category ranking is recomputed and positions changed. |
+| `pricing.updated` | A price changes or a provider is added or removed for a model. |
+| `snapshot.published` | A new [bulk snapshot](/api-reference/bulk-snapshots) is available. |
+
+Subscribe per topic when you register the endpoint in the developer console.
+
+## Delivery
+
+Each delivery is an HTTPS `POST` with a JSON body and three headers.
+
+```http
+POST /hooks/llm-stats HTTP/1.1
+Host: example.com
+Content-Type: application/json
+X-LLM-Stats-Event: score.updated
+X-LLM-Stats-Delivery: dlv_01J8ZD3N7Q
+X-LLM-Stats-Signature: t=1788798260,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8c2
+
+{
+  "id": "evt_01J8ZD3N7P",
+  "topic": "score.updated",
+  "occurred_at": "2026-09-07T16:24:20Z",
+  "data": {
+    "model_id": "gpt-5-2025-08-07",
+    "benchmark_id": "gpqa",
+    "seq": 18443
+  }
+}
+```
+
+| Header | Meaning |
+| --- | --- |
+| `X-LLM-Stats-Event` | The topic. |
+| `X-LLM-Stats-Delivery` | Unique id for this delivery attempt series. Identical on every retry of the same event — use it to deduplicate. |
+| `X-LLM-Stats-Signature` | Timestamp and HMAC, see below. |
+
+`data.seq` matches the [change feed](/api-reference/incremental-updates) sequence number, so you can either fetch the record directly or advance your cursor.
+
+Respond with any `2xx` within 10 seconds. Do the real work asynchronously.
+
+## Verify the signature
+
+Every delivery is signed with the endpoint's secret, shown once when you create the endpoint.
+
+```text
+X-LLM-Stats-Signature: t=<unix seconds>,v1=<hex hmac_sha256(secret, "{t}.{raw body}")>
+```
+
+<Steps>
+  <Step title="Parse the header">
+    Split on `,`, then on `=`, to get `t` and `v1`.
+  </Step>
+  <Step title="Check the timestamp">
+    Reject if `|now - t|` is more than **5 minutes**. This limits replay of captured deliveries.
+  </Step>
+  <Step title="Recompute">
+    Compute `HMAC-SHA256(secret, f"{t}.{body}")` over the **raw** request body bytes, hex-encoded.
+  </Step>
+  <Step title="Compare in constant time">
+    Reject if it does not match `v1`.
+  </Step>
+</Steps>
+
+<CodeGroup>
+```python Python
+import hmac, hashlib, time
+
+def verify(secret: str, header: str, body: bytes, tolerance: int = 300) -> bool:
+    parts = dict(p.split("=", 1) for p in header.split(","))
+    t, v1 = int(parts["t"]), parts["v1"]
+    if abs(time.time() - t) > tolerance:
+        return False
+    expected = hmac.new(secret.encode(), f"{t}.".encode() + body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, v1)
+```
+
+```typescript Node.js
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verify(secret: string, header: string, body: Buffer, tolerance = 300): boolean {
+  const parts = Object.fromEntries(header.split(",").map((p) => p.split("=", 2)));
+  const t = Number(parts.t);
+  if (Math.abs(Date.now() / 1000 - t) > tolerance) return false;
+  const expected = createHmac("sha256", secret)
+    .update(`${t}.`)
+    .update(body)
+    .digest("hex");
+  return expected.length === parts.v1.length && timingSafeEqual(Buffer.from(expected), Buffer.from(parts.v1));
+}
+```
+</CodeGroup>
+
+Secrets can be rotated from the developer console. During rotation, deliveries are signed with the new secret; keep the old one for the tolerance window if you want to accept in-flight retries.
+
+## Endpoint verification
+
+When you register an endpoint, we send a `ping` delivery (`X-LLM-Stats-Event: ping`) signed like any other. The endpoint becomes active only after it returns `2xx` to the ping. Endpoints must be HTTPS with a valid certificate and must not redirect.
+
+## Retries and duplicates
+
+If your endpoint does not return `2xx` within 10 seconds, we retry with the same `X-LLM-Stats-Delivery` id:
+
+| Attempt | Delay after previous |
+| --- | --- |
+| 2 | 1 minute |
+| 3 | 5 minutes |
+| 4 | 30 minutes |
+| 5 | 2 hours |
+| 6 | 12 hours |
+
+After the last attempt the delivery is marked failed and visible in the developer console. Because retries happen after timeouts, you may receive an event you already processed. **Deduplicate on `X-LLM-Stats-Delivery`** (or `id`), and make handlers idempotent.
+
+## Ordering
+
+Deliveries are not ordered. Two events for the same entity can arrive out of order, and a retried event can arrive after a newer one. Do not apply webhook payloads as state. Use them to trigger a fetch of the current record, or compare `data.seq` with the last sequence you applied and skip anything older.
+
+## Suspension
+
+An endpoint is **revoked** after **20 consecutive failed deliveries** (each delivery counts once, after its final attempt). Revoked endpoints stop receiving events; you are notified by email and in the developer console. Re-enable it from the console after fixing the endpoint — it goes through verification again. Events that occurred while the endpoint was revoked are not delivered; use [replay](#replay) or the change feed to catch up.
+
+## Replay
+
+From the developer console you can redeliver any event from the last 30 days to an active endpoint. Replayed deliveries carry a **new** `X-LLM-Stats-Delivery` id and a fresh signature timestamp, so they pass the tolerance check and are not deduplicated against the original. For anything older than 30 days, or after an outage longer than that, resync with the [change feed](/api-reference/incremental-updates), which retains 13 months.

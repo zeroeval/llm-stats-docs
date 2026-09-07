@@ -1,0 +1,87 @@
+---
+title: "Changelog and migration"
+description: "What is live, what is planned, and what existing Stats API users need to change."
+---
+
+This page tracks the rollout of plans, quotas, and data-delivery features, and lists the actions existing API users should take. Dates are added here when each stage ships. Nothing on this page is a commitment until it has a date.
+
+## Rollout status
+
+| Capability | Status | Page |
+| --- | --- | --- |
+| Current-data endpoints (`/v1/models`, `/v1/models/{id}`, `/v1/benchmarks`, `/v1/scores`, `/v1/rankings`, `/v1/updates`) | **Live** | [Introduction](/api-reference/introduction) |
+| Bearer API-key authentication, access form | **Live** | [Authentication](/api-reference/authentication) |
+| Error envelope with `code`, `message`, `param`, `help_url` | **Live** | [Errors](/api-reference/errors) |
+| Per-route request limits with `Retry-After` (abuse backstop) | **Live** | [Rate limits and headers](/api-reference/rate-limits-and-headers) |
+| `Cache-Control` on data routes | **Live** | [Rate limits and headers](/api-reference/rate-limits-and-headers#caching-headers) |
+| MCP server (OAuth and API key) | **Live** | [MCP](/api-reference/mcp) |
+| Plans (Community, Builder, Commercial), self-serve Builder billing | Planned | [Plans and quotas](/api-reference/plans-and-quotas) |
+| Organization daily quota and burst limits, `X-Quota-*` / `X-RateLimit-*` / `X-LLM-Stats-Plan` headers | Planned — measurement period first, then enforcement | [Rate limits and headers](/api-reference/rate-limits-and-headers) |
+| `GET /v1/account` | Planned | [Rate limits and headers](/api-reference/rate-limits-and-headers#check-your-quota) |
+| `Idempotency-Key`, `ETag`, `Last-Modified`, `X-Request-ID` | Planned | [Rate limits and headers](/api-reference/rate-limits-and-headers) |
+| Entitlement and quota error codes and fields | Planned | [Errors](/api-reference/errors) |
+| Historical data (`/v1/models/{id}/history`, `/v1/rankings/history`) | Planned | [Historical data](/api-reference/historical-data) |
+| Bulk snapshots (`/v1/snapshots`) | Planned | [Bulk snapshots](/api-reference/bulk-snapshots) |
+| Incremental updates (`/v1/changes`) | Planned | [Incremental updates](/api-reference/incremental-updates) |
+| Webhooks (Commercial) | Planned | [Webhooks](/api-reference/webhooks) |
+| Attribution verification and verified-integration bonus | Planned | [Attribution](/api-reference/attribution) |
+| Embeds and badges | Planned | [Embeds and badges](/api-reference/embeds-and-badges) |
+
+**Planned** means the behavior is specified in these docs so you can design against it, but calling the route today returns `404` and the headers are absent. **Pilot** means the feature is enabled for selected organizations and may still change; pilot participants are contacted directly.
+
+## Migration guide for existing API users
+
+If you integrated before plans launched, here is what changes and what does not.
+
+### Nothing you rely on today breaks
+
+- Routes, parameters, and response bodies of the six current-data endpoints are unchanged.
+- The error envelope keeps `code`, `message`, `param`, and `help_url`. New fields are additive.
+- Your existing API keys keep working. No re-issue is required.
+
+### Wording change: from "per API key" to "per organization"
+
+Earlier versions of these docs described rate limits as "per API key, per endpoint". Limits are now defined **per organization**:
+
+- All keys in your organization share one daily quota and one burst limit.
+- Official MCP connections draw from the same pool.
+- Creating more keys does not create more capacity. If you were relying on multiple keys to multiply throughput, size your usage against a single organization pool and consider Builder.
+
+The old per-route limits remain in place as an abuse backstop, so a request can still be rejected for exceeding a route limit even when the organization has quota left.
+
+### `/v1/updates` is unchanged, and is not a change feed
+
+`/v1/updates` continues to return **recently added models** within a 1–30 day lookback. It does not report score, ranking, or pricing changes, and has no cursor. The [incremental updates API](/api-reference/incremental-updates) (`/v1/changes`) is a separate, Builder-and-above feature. Keep using `/v1/updates` for "what's new"; move to `/v1/changes` when you need a durable sync.
+
+### Effective dates and grandfathering
+
+- Plan enforcement launches in two steps. First, quota headers appear on responses and usage is **measured only**; no request is rejected for quota. Then, on an announced date, limits are enforced. Both dates will be added to this page and emailed to the address on your developer account at least 14 days in advance.
+- At enforcement, every organization without a subscription is on **Community**.
+- Organizations whose measured usage exceeds Community limits receive a time-limited grace period before enforcement applies to them. Grace is temporary; there is no permanent grandfathering of pre-plan usage levels.
+- Attribution requirements for public Community display apply from enforcement. Integrations that already show a source link are eligible for the verified bonus once verification launches.
+
+### What to do now
+
+<Steps>
+  <Step title="Consolidate keys to one organization">
+    If you created keys under several accounts to spread load, pick one organization and migrate to it. Quota follows the organization.
+  </Step>
+  <Step title="Estimate your daily data responses">
+    Count `2xx` responses per UTC day. If it is regularly above 500, plan for Builder; above 5,000, [contact sales](https://llm-stats.com/contact-sales).
+  </Step>
+  <Step title="Handle 429 by `limit_type`">
+    Update your client to read `error.limit_type` and `reset_at`, and to stop polling when the daily quota is exhausted. See [Rate limits and headers](/api-reference/rate-limits-and-headers#handle-429-responses).
+  </Step>
+  <Step title="Add attribution if you display data publicly">
+    Community users showing LLM Stats data publicly need a source link or badge. See [Attribution](/api-reference/attribution). Doing it now earns the verified bonus as soon as verification launches.
+  </Step>
+  <Step title="Confirm your rights">
+    If you redistribute the data — as a dataset, an API, or inside a paid product — you need a Commercial agreement regardless of volume. See [Plans and quotas](/api-reference/plans-and-quotas#technical-access-is-not-a-right-to-redistribute).
+  </Step>
+</Steps>
+
+## History
+
+<Update label="Unreleased" description="Plans and quotas">
+  Documented the three-plan model, organization-level quotas and burst limits, response headers, stable error codes, historical data, bulk snapshots, incremental updates, webhooks, attribution, and embeds ahead of rollout. Corrected the previous "per API key" rate-limit wording to "per organization". No API behavior changed.
+</Update>
