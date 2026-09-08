@@ -26,7 +26,7 @@ Both are counted **per organization**, not per API key. Splitting traffic across
 
 | Plan | Requests per minute per organization |
 | --- | --- |
-| Community | 60 |
+| Community | 50 |
 | Builder | 300 |
 | Commercial | 600 by default, or as contracted |
 
@@ -69,7 +69,7 @@ A `429` carries the standard [error envelope](/api-reference/errors) and tells y
 {
   "error": {
     "code": "rate_limit_exceeded",
-    "message": "Organization burst limit of 60 requests per minute exceeded.",
+    "message": "Organization burst limit of 50 requests per minute exceeded.",
     "limit_type": "burst",
     "plan": "community",
     "reset_at": "2026-09-07T16:22:00Z",
@@ -83,7 +83,7 @@ A `429` carries the standard [error envelope](/api-reference/errors) and tells y
 {
   "error": {
     "code": "quota_exceeded",
-    "message": "Daily quota of 500 data responses used. Resets at 00:00 UTC.",
+    "message": "Daily quota of 250 data responses used. Resets at 00:00 UTC.",
     "limit_type": "daily_quota",
     "plan": "community",
     "reset_at": "2026-09-08T00:00:00Z",
