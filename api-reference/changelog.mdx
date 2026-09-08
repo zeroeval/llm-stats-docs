@@ -67,7 +67,7 @@ The old per-route limits remain in place as an abuse backstop, so a request can 
     If you created keys under several accounts to spread load, pick one organization and migrate to it. Quota follows the organization.
   </Step>
   <Step title="Estimate your daily data responses">
-    Count `2xx` responses per UTC day. If it is regularly above 500, plan for Builder; above 5,000, [contact sales](https://llm-stats.com/contact-sales).
+    Count `2xx` responses per UTC day. If it is regularly above 250, plan for Builder; above 5,000, [contact sales](https://llm-stats.com/contact-sales).
   </Step>
   <Step title="Handle 429 by `limit_type`">
     Update your client to read `error.limit_type` and `reset_at`, and to stop polling when the daily quota is exhausted. See [Rate limits and headers](/api-reference/rate-limits-and-headers#handle-429-responses).
@@ -83,5 +83,5 @@ The old per-route limits remain in place as an abuse backstop, so a request can 
 ## History
 
 <Update label="Unreleased" description="Plans and quotas">
-  Documented the three-plan model, organization-level quotas and burst limits, response headers, stable error codes, historical data, bulk snapshots, incremental updates, webhooks, attribution, and embeds ahead of rollout. Corrected the previous "per API key" rate-limit wording to "per organization". No API behavior changed.
+  Documented the three-plan model, organization-level quotas and burst limits, response headers, stable error codes, historical data, bulk snapshots, incremental updates, webhooks, attribution, and embeds ahead of rollout. Set the Community launch limits to 250 successful data responses per day and 50 requests per minute. Corrected the previous "per API key" rate-limit wording to "per organization". Enforcement remains a separate rollout step.
 </Update>
